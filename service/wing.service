@@ -1,0 +1,14 @@
+[Unit]
+Description=Wing WireGuard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wing -config /home/USER/.wing/self.json
+Restart=on-failure
+RestartSec=3
+Environment=WING_STATE_DIR=/home/USER/.wing
+
+[Install]
+WantedBy=multi-user.target

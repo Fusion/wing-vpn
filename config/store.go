@@ -156,6 +156,29 @@ func ReadStates() ([]State, error) {
 	return states, nil
 }
 
+func ReadState(configIface string) (*State, error) {
+	dir, err := StateDir()
+	if err != nil {
+		return nil, err
+	}
+	path := statePath(configIface, dir)
+	if path == "" {
+		return nil, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var st State
+	if err := json.Unmarshal(b, &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
 func RemoveState(configIface string) error {
 	dir, err := StateDir()
 	if err != nil {

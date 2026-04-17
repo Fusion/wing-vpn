@@ -117,6 +117,56 @@ func DownAll() error {
 	return nil
 }
 
+func Reload(cfg *config.Config, osIfaceFlag string) error {
+	if !DeviceExists(cfg.Interface) {
+		return fmt.Errorf("device %s not found; start wing first", cfg.Interface)
+	}
+
+	osIface := cfg.Interface
+	if runtime.GOOS == "darwin" {
+		if osIfaceFlag != "" {
+			osIface = osIfaceFlag
+		} else {
+			if st, err := config.ReadState(cfg.Interface); err == nil && st != nil && st.OSInterface != "" {
+				osIface = st.OSInterface
+			}
+			if osIface == cfg.Interface {
+				if ip, _, err := net.ParseCIDR(cfg.Address); err == nil && ip != nil {
+					if iface, ferr := findDarwinIfaceByIP(ip); ferr == nil {
+						osIface = iface
+					}
+				}
+			}
+			if osIface == cfg.Interface && len(cfg.Peers) > 0 {
+				if iface, ferr := findDarwinIfaceByRoute(cfg.Peers); ferr == nil {
+					osIface = iface
+				}
+			}
+		}
+		if osIface == cfg.Interface {
+			return errors.New("could not determine utun interface; rerun with -os-iface utunX")
+		}
+	}
+
+	if st, err := config.ReadState(cfg.Interface); err == nil && st != nil {
+		oldIface := st.OSInterface
+		if oldIface == "" {
+			oldIface = osIface
+		}
+		removeAllowedIPRoutes(oldIface, st.AllowedIPs)
+	}
+
+	if err := Configure(cfg); err != nil {
+		return err
+	}
+	if !cfg.DisableRoutes {
+		if err := AddPeerRoutes(osIface, cfg.Peers); err != nil {
+			return err
+		}
+	}
+	return config.WriteState(cfg, osIface)
+}
+
 func findDarwinIfaceByIP(ip net.IP) (string, error) {
 	out, err := exec.Command("ifconfig", "-a").Output()
 	if err != nil {

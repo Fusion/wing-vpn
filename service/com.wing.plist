@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.wing</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/local/bin/wing</string>
+      <string>-config</string>
+      <string>/Users/USER/.wing/self.json</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/var/log/wing.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/wing.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>WING_STATE_DIR</key>
+      <string>/Users/USER/.wing</string>
+    </dict>
+  </dict>
+</plist>

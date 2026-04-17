@@ -39,6 +39,7 @@ func main() {
 	var removePeer bool
 	var exportPeer bool
 	var importPeer bool
+	var reload bool
 	var showVersion bool
 
 	flag.StringVar(&cfgPath, "config", "", "path to config json")
@@ -61,6 +62,7 @@ func main() {
 	flag.BoolVar(&removePeer, "remove-peer", false, "remove a peer from config")
 	flag.BoolVar(&exportPeer, "export", false, "export this node as a peer json block")
 	flag.BoolVar(&importPeer, "import", false, "import a peer json block into config")
+	flag.BoolVar(&reload, "reload", false, "re-read config and apply to existing interface")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
 
@@ -136,6 +138,12 @@ func main() {
 	if status {
 		if err := wireguard.Status(cfg); err != nil {
 			fatalf("status: %v", err)
+		}
+		return
+	}
+	if reload {
+		if err := wireguard.Reload(cfg, osIfaceFlag); err != nil {
+			fatalf("reload: %v", err)
 		}
 		return
 	}
