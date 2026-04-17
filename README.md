@@ -1,6 +1,8 @@
 # wing
 
-Dead‑simple WireGuard userspace launcher for Linux + macOS that keeps routes/DNS untouched.
+Dead‑simple WireGuard userspace launcher for Linux + macOS that keeps routes/DNS untouched. It’s designed to run on its own or alongside existing VPNs without disrupting their operations (see Non‑interference guarantees below).
+
+![Wing VPN logo](assets/wingvpn256.png)
 
 ## What it does
 - Creates a dedicated WG interface via `wireguard-go` (userspace).
@@ -14,6 +16,14 @@ Dead‑simple WireGuard userspace launcher for Linux + macOS that keeps routes/D
 - macOS: `ifconfig` and `route`
 
 On Linux, the kernel WireGuard driver is used automatically if available. `wireguard-go` is only needed when the kernel driver is missing.
+
+WireGuard can run either in-kernel (fastest, preferred on Linux) or in userspace (`wireguard-go`, works everywhere but uses more CPU).
+
+To confirm the Linux kernel driver is available, try `ip link add dev wgtest type wireguard` (should succeed), or `modprobe wireguard` followed by `lsmod | grep wireguard`.
+
+If the kernel driver isn’t available, install `wireguard-go` and ensure it’s in `PATH` (Linux: `sudo apt install wireguard-go` or your distro’s equivalent; macOS: `brew install wireguard-go`).
+
+Wing will use the kernel driver when it exists and fall back to userspace otherwise.
 
 ## Quick Walkthrough
 
