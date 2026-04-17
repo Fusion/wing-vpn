@@ -149,6 +149,15 @@ func listDarwinUtuns() map[string]struct{} {
 	return utuns
 }
 
+func darwinUtunExists(name string) bool {
+	if !strings.HasPrefix(name, "utun") {
+		return false
+	}
+	utuns := listDarwinUtuns()
+	_, ok := utuns[name]
+	return ok
+}
+
 func waitForNewUtun(before map[string]struct{}, timeout time.Duration) (string, error) {
 	// On macOS, wireguard-go creates a new utun with a dynamic name; detect the delta.
 	deadline := time.Now().Add(timeout)

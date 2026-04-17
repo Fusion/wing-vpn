@@ -53,6 +53,11 @@ func Down(cfg *config.Config, osIfaceFlag string) error {
 		osIface := osIfaceFlag
 		// macOS utun names are dynamic; try address/route matching if -os-iface not provided.
 		if osIface == "" {
+			if darwinUtunExists(cfg.Interface) {
+				osIface = cfg.Interface
+			}
+		}
+		if osIface == "" {
 			ip, _, err := net.ParseCIDR(cfg.Address)
 			if err == nil && ip != nil {
 				if iface, ferr := findDarwinIfaceByIP(ip); ferr == nil {
@@ -123,6 +128,7 @@ func Reload(cfg *config.Config, osIfaceFlag string) error {
 	}
 
 	osIface := cfg.Interface
+	osIfaceIsUtun := false
 	if runtime.GOOS == "darwin" {
 		if osIfaceFlag != "" {
 			osIface = osIfaceFlag
@@ -130,20 +136,24 @@ func Reload(cfg *config.Config, osIfaceFlag string) error {
 			if st, err := config.ReadState(cfg.Interface); err == nil && st != nil && st.OSInterface != "" {
 				osIface = st.OSInterface
 			}
-			if osIface == cfg.Interface {
+			if osIface == cfg.Interface && darwinUtunExists(cfg.Interface) {
+				// If the config interface is already a utun, accept it as the OS iface.
+				// This helps when no state file exists.
+				osIfaceIsUtun = true
+			} else if osIface == cfg.Interface {
 				if ip, _, err := net.ParseCIDR(cfg.Address); err == nil && ip != nil {
 					if iface, ferr := findDarwinIfaceByIP(ip); ferr == nil {
 						osIface = iface
 					}
 				}
-			}
-			if osIface == cfg.Interface && len(cfg.Peers) > 0 {
-				if iface, ferr := findDarwinIfaceByRoute(cfg.Peers); ferr == nil {
-					osIface = iface
+				if osIface == cfg.Interface && len(cfg.Peers) > 0 {
+					if iface, ferr := findDarwinIfaceByRoute(cfg.Peers); ferr == nil {
+						osIface = iface
+					}
 				}
 			}
 		}
-		if osIface == cfg.Interface {
+		if osIface == cfg.Interface && !osIfaceIsUtun {
 			return errors.New("could not determine utun interface; rerun with -os-iface utunX")
 		}
 	}
