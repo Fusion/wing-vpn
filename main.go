@@ -16,6 +16,8 @@ import (
 	"wing/wireguard"
 )
 
+const version = "0.1.0"
+
 func main() {
 	var cfgPath string
 	var reuse bool
@@ -37,6 +39,7 @@ func main() {
 	var removePeer bool
 	var exportPeer bool
 	var importPeer bool
+	var showVersion bool
 
 	flag.StringVar(&cfgPath, "config", "", "path to config json")
 	flag.BoolVar(&reuse, "reuse", false, "reuse existing wireguard device if present (linux only)")
@@ -58,7 +61,13 @@ func main() {
 	flag.BoolVar(&removePeer, "remove-peer", false, "remove a peer from config")
 	flag.BoolVar(&exportPeer, "export", false, "export this node as a peer json block")
 	flag.BoolVar(&importPeer, "import", false, "import a peer json block into config")
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("wing %s\n", version)
+		return
+	}
 
 	if genkey || genpsk {
 		if err := handleKeygen(genkey, genpsk); err != nil {
