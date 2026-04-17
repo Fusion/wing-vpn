@@ -1,0 +1,17 @@
+{
+  "interface": "utun101",
+  "private_key": "UUqC9EOX7LDTssRn3Jbovr6wHe/9lNP1BSRrEsbNayI=",
+  "address": "10.7.0.1/32",
+  "listen_port": 51821,
+  "mtu": 1420,
+  "disable_routes": false,
+  "peers": [
+    {
+      "name": "mahogany",
+      "public_key": "xIXgnRPxbbjF6po/TGZe9oBdoUIBjPrD3eu8pOp/nVo=",
+      "endpoint": "134.195.91.171:51821",
+      "allowed_ips": ["10.7.0.2/32"],
+      "keepalive": 25
+    }
+  ]
+}
