@@ -2,17 +2,19 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
-	"runtime"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"wing/config"
+	"wing/rendezvous"
 	"wing/wireguard"
 )
 
@@ -41,6 +43,10 @@ func main() {
 	var importPeer bool
 	var reload bool
 	var showVersion bool
+	var daemonMode bool
+	var serveRendezvous bool
+	var rendezvousListen string
+	var rendezvousStatus string
 
 	flag.StringVar(&cfgPath, "config", "", "path to config json")
 	flag.BoolVar(&reuse, "reuse", false, "reuse existing wireguard device if present (linux only)")
@@ -64,6 +70,10 @@ func main() {
 	flag.BoolVar(&importPeer, "import", false, "import a peer json block into config")
 	flag.BoolVar(&reload, "reload", false, "re-read config and apply to existing interface")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.BoolVar(&daemonMode, "daemon", false, "run wing as a long-lived control-plane daemon")
+	flag.BoolVar(&serveRendezvous, "serve-rendezvous", false, "run the rendezvous HTTP service")
+	flag.StringVar(&rendezvousListen, "rendezvous-listen", "", "listen address for -serve-rendezvous")
+	flag.StringVar(&rendezvousStatus, "rendezvous-status", "", "query configured rendezvous servers for self or a peer name/public key")
 	flag.Parse()
 
 	if showVersion {
@@ -88,6 +98,18 @@ func main() {
 	if downAll {
 		if err := wireguard.DownAll(); err != nil {
 			fatalf("down-all: %v", err)
+		}
+		return
+	}
+
+	if serveRendezvous {
+		if rendezvousListen == "" {
+			rendezvousListen = config.DefaultRendezvousListen
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := rendezvous.Serve(ctx, rendezvousListen); err != nil {
+			fatalf("serve-rendezvous: %v", err)
 		}
 		return
 	}
@@ -124,6 +146,9 @@ func main() {
 	if err != nil {
 		fatalf("config: %v", err)
 	}
+	if err := persistRuntimeIdentity(cfgPath, cfg); err != nil {
+		fatalf("config identity: %v", err)
+	}
 
 	if cfg.Interface == "" {
 		fatalf("config: interface required")
@@ -138,6 +163,13 @@ func main() {
 	if status {
 		if err := wireguard.Status(cfg); err != nil {
 			fatalf("status: %v", err)
+		}
+		return
+	}
+	if rendezvousStatus != "" {
+		if err := handleRendezvousStatus(cfg, rendezvousStatus); err != nil {
+			printRendezvousStatusHint()
+			fatalf("rendezvous-status: %v", err)
 		}
 		return
 	}
@@ -189,68 +221,29 @@ func main() {
 		fatalf("config: %v", err)
 	}
 
-	if reuse && runtime.GOOS == "darwin" {
-		fatalf("-reuse is not supported on macOS; stop the existing device first")
-	}
-
-	if wireguard.DeviceExists(cfg.Interface) && !reuse {
-		fatalf("device %s already exists; use -reuse (linux only) or pick a different interface", cfg.Interface)
-	}
-
-	osIface := cfg.Interface
-	var wgCmd *exec.Cmd
-	deleteOnExit := false
-	createdByWing := false
-	if !wireguard.DeviceExists(cfg.Interface) {
-		var err error
-		if runtime.GOOS == "linux" {
-			var createdKernel bool
-			osIface, wgCmd, createdKernel, err = wireguard.EnsureLinuxDevice(cfg.Interface, wgGoPath, detach)
-			if err != nil {
-				fatalf("device: %v", err)
-			}
-			// createdKernel means we created a kernel WG link, so we own cleanup.
-			deleteOnExit = createdKernel
-			createdByWing = createdKernel || wgCmd != nil
-		} else {
-			osIface, wgCmd, err = wireguard.EnsureUserspaceWG(cfg.Interface, wgGoPath, detach)
-			if err != nil {
-				fatalf("wireguard-go: %v", err)
-			}
-			createdByWing = wgCmd != nil
+	if daemonMode {
+		if detach {
+			fatalf("-detach cannot be used with -daemon; run it under a service manager")
 		}
-	}
-
-	if err := wireguard.SetInterfaceAddr(osIface, cfg.Address, cfg.MTU); err != nil {
-		fatalf("interface addr: %v", err)
-	}
-
-	if err := wireguard.Configure(cfg); err != nil {
-		fatalf("configure wg: %v", err)
-	}
-
-	routesAdded := false
-	if !cfg.DisableRoutes {
-		if err := wireguard.AddPeerRoutes(osIface, cfg.Peers); err != nil {
-			fatalf("routes: %v", err)
-		}
-		routesAdded = true
-	}
-
-	if createdByWing {
-		if err := config.WriteState(cfg, osIface); err != nil {
-			fatalf("state: %v", err)
-		}
-	}
-
-	fmt.Printf("up: %s (os=%s, addr=%s)\n", cfg.Interface, osIface, cfg.Address)
-	if detach {
-		if wgCmd != nil && wgCmd.Process != nil {
-			_ = wgCmd.Process.Release()
+		if err := runDaemon(cfgPath, cfg, wgGoPath, reuse); err != nil {
+			fatalf("daemon: %v", err)
 		}
 		return
 	}
-	wireguard.WaitForSignal(cfg.Interface, wgCmd, osIface, cfg.Peers, routesAdded, deleteOnExit)
+
+	sess, err := startSession(cfg, wgGoPath, reuse, detach)
+	if err != nil {
+		fatalf("up: %v", err)
+	}
+
+	fmt.Printf("up: %s (os=%s, addr=%s)\n", cfg.Interface, sess.osIface, cfg.Address)
+	if detach {
+		if sess.wgCmd != nil && sess.wgCmd.Process != nil {
+			_ = sess.wgCmd.Process.Release()
+		}
+		return
+	}
+	wireguard.WaitForSignal(cfg.Interface, sess.wgCmd, sess.osIface, cfg.Peers, sess.routesAdded, sess.deleteOnExit)
 }
 
 func fatalf(msg string, args ...any) {

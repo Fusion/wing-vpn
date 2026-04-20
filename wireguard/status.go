@@ -96,8 +96,15 @@ func printStatusFromConfig(cfg *config.Config) {
 	if cfg.MyPublicKey != "" {
 		fmt.Printf("my_public_key: %s\n", cfg.MyPublicKey)
 	}
+	if cfg.ControlPublicKey != "" {
+		fmt.Printf("control_public_key: %s\n", cfg.ControlPublicKey)
+	}
 	if cfg.MyEndpoint != "" {
 		fmt.Printf("my_endpoint: %s\n", cfg.MyEndpoint)
+	}
+	urls := config.EffectiveRendezvousURLs(cfg)
+	if len(urls) > 0 {
+		fmt.Printf("rendezvous_urls: %s\n", strings.Join(urls, ", "))
 	}
 	fmt.Printf("peers: %d\n", len(cfg.Peers))
 	fmt.Printf("hint: start wing to bring the interface up, then re-run -status\n")

@@ -35,6 +35,9 @@ func handleSetup(cfgPath, addr string, port int, mtu int) error {
 	if err != nil {
 		return err
 	}
+	if err := config.EnsureRuntimeIdentity(cfg); err != nil {
+		return err
+	}
 	if cfg.Peers == nil {
 		cfg.Peers = []config.Peer{}
 	}
@@ -127,6 +130,10 @@ func handleListPeers(cfg *config.Config) error {
 		} else {
 			fmt.Printf("  endpoint: (none)\n")
 		}
+		if p.ControlPublicKey != "" {
+			fmt.Printf("  control_public_key: %s\n", p.ControlPublicKey)
+		}
+		fmt.Printf("  dynamic_endpoint: %t\n", p.DynamicEndpoint)
 		if len(p.AllowedIPs) > 0 {
 			fmt.Printf("  allowed_ips: %s\n", strings.Join(p.AllowedIPs, ", "))
 		} else {
@@ -168,6 +175,16 @@ func handleAddPeer(cfgPath string, cfg *config.Config) error {
 			return fmt.Errorf("invalid endpoint: %v", err)
 		}
 	}
+	controlPub, err := promptString(reader, "peer control public key (optional)", "")
+	if err != nil {
+		return err
+	}
+	controlPub = strings.TrimSpace(controlPub)
+	if controlPub != "" {
+		if err := config.ValidateControlPublicKey(controlPub); err != nil {
+			return fmt.Errorf("invalid control public key: %v", err)
+		}
+	}
 
 	allowed, err := promptRequiredString(reader, "allowed ip (CIDR)")
 	if err != nil {
@@ -188,11 +205,13 @@ func handleAddPeer(cfgPath string, cfg *config.Config) error {
 	}
 
 	cfg.Peers = append(cfg.Peers, config.Peer{
-		Name:       name,
-		PublicKey:  strings.TrimSpace(pubKey),
-		Endpoint:   strings.TrimSpace(endpoint),
-		AllowedIPs: []string{allowed},
-		Keepalive:  keepalive,
+		Name:             name,
+		PublicKey:        strings.TrimSpace(pubKey),
+		ControlPublicKey: controlPub,
+		Endpoint:         strings.TrimSpace(endpoint),
+		DynamicEndpoint:  controlPub != "",
+		AllowedIPs:       []string{allowed},
+		Keepalive:        keepalive,
 	})
 
 	if err := config.Write(cfgPath, cfg); err != nil {

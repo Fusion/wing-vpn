@@ -16,13 +16,18 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateKeypair error: %v", err)
 	}
+	_, controlPub, err := config.GenerateControlKeypair()
+	if err != nil {
+		t.Fatalf("GenerateControlKeypair error: %v", err)
+	}
 
 	cfg := &config.Config{
-		Interface:   "wgwing0",
-		MyPublicKey: pub,
-		MyEndpoint:  "1.2.3.4:51821",
-		Address:     "10.7.0.1",
-		Peers:       []config.Peer{},
+		Interface:        "wgwing0",
+		MyPublicKey:      pub,
+		ControlPublicKey: controlPub,
+		MyEndpoint:       "1.2.3.4:51821",
+		Address:          "10.7.0.1",
+		Peers:            []config.Peer{},
 	}
 
 	out := captureStdout(t, func() {
@@ -64,8 +69,14 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if p.PublicKey != peer.PublicKey {
 		t.Fatalf("public_key mismatch: %q vs %q", p.PublicKey, peer.PublicKey)
 	}
+	if p.ControlPublicKey != peer.ControlPublicKey {
+		t.Fatalf("control_public_key mismatch: %q vs %q", p.ControlPublicKey, peer.ControlPublicKey)
+	}
 	if p.Endpoint != peer.Endpoint {
 		t.Fatalf("endpoint mismatch: %q vs %q", p.Endpoint, peer.Endpoint)
+	}
+	if !p.DynamicEndpoint {
+		t.Fatalf("expected dynamic_endpoint to round-trip true")
 	}
 	if len(p.AllowedIPs) != 1 || p.AllowedIPs[0] != "10.7.0.1/32" {
 		t.Fatalf("allowed_ips mismatch: %v", p.AllowedIPs)

@@ -20,6 +20,12 @@ func Load(path string) (*Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return nil, err
 	}
+	ApplyDefaults(&c)
+	if c.MyPublicKey == "" && c.PrivateKey != "" {
+		if pub, err := PublicKeyFromPrivate(c.PrivateKey); err == nil {
+			c.MyPublicKey = pub
+		}
+	}
 	return &c, nil
 }
 
@@ -55,17 +61,24 @@ func InitAt(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	cfg := Config{
-		Interface:     DefaultInterfaceName(),
-		PrivateKey:    priv,
-		MyPublicKey:   pub,
-		MyEndpoint:    "",
-		Address:       "",
-		ListenPort:    51821,
-		MTU:           1420,
-		DisableRoutes: false,
-		Peers:         []Peer{},
+	controlPriv, controlPub, err := GenerateControlKeypair()
+	if err != nil {
+		return false, err
 	}
+	cfg := Config{
+		Interface:         DefaultInterfaceName(),
+		PrivateKey:        priv,
+		MyPublicKey:       pub,
+		ControlPrivateKey: controlPriv,
+		ControlPublicKey:  controlPub,
+		MyEndpoint:        "",
+		Address:           "",
+		ListenPort:        51821,
+		MTU:               1420,
+		DisableRoutes:     false,
+		Peers:             []Peer{},
+	}
+	ApplyDefaults(&cfg)
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return false, err
@@ -78,6 +91,7 @@ func InitAt(path string) (bool, error) {
 }
 
 func Write(path string, cfg *Config) error {
+	ApplyDefaults(cfg)
 	if cfg.Peers == nil {
 		cfg.Peers = []Peer{}
 	}

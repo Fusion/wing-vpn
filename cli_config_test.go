@@ -59,3 +59,27 @@ func TestNormalizeEndpointHostPort(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeImportPeerAllowsDynamicEndpointWithoutStaticEndpoint(t *testing.T) {
+	_, pub, err := config.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair error: %v", err)
+	}
+	_, controlPub, err := config.GenerateControlKeypair()
+	if err != nil {
+		t.Fatalf("GenerateControlKeypair error: %v", err)
+	}
+	peer, err := config.NormalizeImportPeer(config.Peer{
+		Name:             "peer1",
+		PublicKey:        pub,
+		ControlPublicKey: controlPub,
+		DynamicEndpoint:  true,
+		AllowedIPs:       []string{"10.0.0.2"},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeImportPeer error: %v", err)
+	}
+	if peer.Endpoint != "" {
+		t.Fatalf("expected empty endpoint, got %q", peer.Endpoint)
+	}
+}

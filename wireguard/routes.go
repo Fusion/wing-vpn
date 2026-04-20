@@ -65,6 +65,10 @@ func removePeerRoutes(osIface string, peers []config.Peer) {
 	}
 }
 
+func RemovePeerRoutes(osIface string, peers []config.Peer) {
+	removePeerRoutes(osIface, peers)
+}
+
 func removeAllowedIPRoutes(osIface string, allowedIPs []string) {
 	if osIface == "" || len(allowedIPs) == 0 {
 		return

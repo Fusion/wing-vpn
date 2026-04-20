@@ -12,9 +12,19 @@ func ValidateConfig(cfg *config.Config) error {
 	if err != nil {
 		return fmt.Errorf("invalid address %q", cfg.Address)
 	}
+	if cfg.ControlPublicKey != "" {
+		if err := config.ValidateControlPublicKey(cfg.ControlPublicKey); err != nil {
+			return fmt.Errorf("invalid control_public_key: %v", err)
+		}
+	}
 	for _, p := range cfg.Peers {
 		if p.PublicKey == "" {
 			return fmt.Errorf("peer %q: public_key required", p.Name)
+		}
+		if p.ControlPublicKey != "" {
+			if err := config.ValidateControlPublicKey(p.ControlPublicKey); err != nil {
+				return fmt.Errorf("peer %q: invalid control_public_key: %v", p.Name, err)
+			}
 		}
 		if len(p.AllowedIPs) == 0 {
 			return fmt.Errorf("peer %q: allowed_ips required", p.Name)

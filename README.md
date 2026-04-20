@@ -9,6 +9,7 @@ Dead‑simple WireGuard userspace launcher for Linux + macOS that keeps routes/D
 - Sets a local /32 address.
 - Configures peers and **only** host (/32) routes for peer WG IPs.
 - Does **not** touch default routes or DNS.
+- Optionally runs a local control-plane daemon that publishes/fetches signed endpoint records through a rendezvous service.
 
 ## Requirements
 - `wireguard-go` in `PATH`
@@ -56,6 +57,15 @@ paste exported peer definition
 At any time, launch a leg of the peer relationship using:
 ```sh
 sudo wing -detach
+```
+
+To run the new control plane:
+```sh
+# central rendezvous service
+wing -serve-rendezvous -rendezvous-listen :8787
+
+# each node
+sudo wing -daemon
 ```
 
 ## Usage
@@ -125,6 +135,22 @@ Show status:
 wing -config config.example.json -status
 ```
 
+Inspect rendezvous records for yourself or a peer:
+```sh
+wing -rendezvous-status self
+wing -rendezvous-status peer-name
+```
+
+Run the local daemon:
+```sh
+sudo wing -daemon
+```
+
+Run the rendezvous service:
+```sh
+wing -serve-rendezvous -rendezvous-listen :8787
+```
+
 Return to prompt and leave the interface up:
 ```sh
 sudo wing -config config.example.json -detach
@@ -146,6 +172,15 @@ wing -config config.example.json
 ## Config
 `config.example.json` shows the shape. Only /32 IPv4 `allowed_ips` are accepted in this minimal version.
 
+New control-plane fields:
+- `control_private_key` / `control_public_key`: Ed25519 keypair used to sign endpoint records.
+- `daemon.stun_servers`: STUN servers used for reflexive endpoint discovery.
+- `rendezvous.urls`: HTTP base URLs for redundant rendezvous services.
+- `rendezvous.url`: legacy single-server form; still accepted and folded into `rendezvous.urls`.
+- `peer.control_public_key`: trusted signing key for a peer's dynamic endpoint records.
+- `peer.dynamic_endpoint`: allow the daemon to replace the peer endpoint from rendezvous records.
+- `-rendezvous-status`: query each configured rendezvous server directly and show the newest record it sees.
+
 ## Debugging
 
 So, is WireGuard not cooperating? Or is it?
@@ -160,6 +195,10 @@ The most common issue is forgetting to import the remote node on both peers.
 - Wing stores state files under `~/.wing` (or `WING_STATE_DIR`) for `-down-all`.
 - `-down-all` only affects interfaces that were created by wing (state files are written only when wing creates a device).
 - `-init` writes `~/.wing/self.json` and includes `my_public_key` for sharing with peers.
+- `-daemon` is intended to run under launchd/systemd or another service manager; it stays in the foreground.
+- STUN discovery is best-effort. On the first daemon start it probes using the configured WG port; later refreshes may publish a guessed port if the live WG socket already owns the port.
+- With multiple rendezvous servers configured, the daemon publishes to all of them and accepts the newest valid signed record it can fetch from the set.
+- Redundant rendezvous fetches are done in parallel with a short timeout window, so one slow server does not hold up fresher records from faster ones.
 
 ## Non‑interference guarantees
 - No default route changes.

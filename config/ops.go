@@ -106,23 +106,25 @@ func BuildExportPeer(cfg *Config, name string) (Peer, error) {
 	if cfg.Address == "" {
 		return Peer{}, errors.New("address is empty")
 	}
-	if cfg.MyEndpoint == "" {
-		return Peer{}, errors.New("my_endpoint is empty")
-	}
 	addr, err := NormalizeAddress(cfg.Address)
 	if err != nil {
 		return Peer{}, err
 	}
-	endpoint, err := NormalizeEndpointHostPort(cfg.MyEndpoint)
-	if err != nil {
-		return Peer{}, err
+	endpoint := ""
+	if cfg.MyEndpoint != "" {
+		endpoint, err = NormalizeEndpointHostPort(cfg.MyEndpoint)
+		if err != nil {
+			return Peer{}, err
+		}
 	}
 	peer := Peer{
-		Name:       name,
-		PublicKey:  pub,
-		Endpoint:   endpoint,
-		AllowedIPs: []string{addr},
-		Keepalive:  25,
+		Name:             name,
+		PublicKey:        pub,
+		ControlPublicKey: strings.TrimSpace(cfg.ControlPublicKey),
+		Endpoint:         endpoint,
+		DynamicEndpoint:  true,
+		AllowedIPs:       []string{addr},
+		Keepalive:        25,
 	}
 	return peer, nil
 }
@@ -141,14 +143,18 @@ func NormalizeImportPeer(peer Peer) (Peer, error) {
 	if err := ValidatePublicKey(peer.PublicKey); err != nil {
 		return Peer{}, fmt.Errorf("invalid public_key: %v", err)
 	}
-	if peer.Endpoint == "" {
-		return Peer{}, errors.New("endpoint is required")
+	if peer.ControlPublicKey != "" {
+		if err := ValidateControlPublicKey(peer.ControlPublicKey); err != nil {
+			return Peer{}, fmt.Errorf("invalid control_public_key: %v", err)
+		}
 	}
-	endpoint, err := NormalizeEndpointHostPort(peer.Endpoint)
-	if err != nil {
-		return Peer{}, err
+	if peer.Endpoint != "" {
+		endpoint, err := NormalizeEndpointHostPort(peer.Endpoint)
+		if err != nil {
+			return Peer{}, err
+		}
+		peer.Endpoint = endpoint
 	}
-	peer.Endpoint = endpoint
 	if len(peer.AllowedIPs) == 0 {
 		return Peer{}, errors.New("allowed_ips is required")
 	}
