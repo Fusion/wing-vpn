@@ -17,8 +17,13 @@ type Candidate struct {
 }
 
 type Record struct {
+	Name              string      `json:"name,omitempty"`
 	WGPublicKey       string      `json:"wg_public_key"`
 	ControlPublicKey  string      `json:"control_public_key"`
+	RootPublicKey     string      `json:"root_public_key,omitempty"`
+	IdentitySignature string      `json:"identity_signature,omitempty"`
+	Endpoint          string      `json:"endpoint,omitempty"`
+	AllowedIPs        []string    `json:"allowed_ips,omitempty"`
 	ListenPort        int         `json:"listen_port"`
 	Sequence          uint64      `json:"sequence"`
 	ObservedAt        string      `json:"observed_at"`
@@ -35,8 +40,13 @@ func NewRecord(cfg *config.Config, candidates []Candidate, now time.Time) (*Reco
 		return nil, err
 	}
 	record := &Record{
-		WGPublicKey:      strings.TrimSpace(cfg.MyPublicKey),
+		Name:             strings.TrimSpace(cfg.Name),
+		WGPublicKey:      strings.TrimSpace(cfg.PublicKey),
 		ControlPublicKey: strings.TrimSpace(cfg.ControlPublicKey),
+		RootPublicKey:    strings.TrimSpace(cfg.RootPublicKey),
+		IdentitySignature: strings.TrimSpace(cfg.IdentitySignature),
+		Endpoint:         strings.TrimSpace(cfg.MyEndpoint),
+		AllowedIPs:       recordAllowedIPs(cfg.Address),
 		ListenPort:       cfg.ListenPort,
 		Sequence:         uint64(now.UTC().UnixNano()),
 		ObservedAt:       now.UTC().Format(time.RFC3339),
@@ -54,16 +64,26 @@ func (r *Record) canonicalJSON() ([]byte, error) {
 		return nil, errors.New("record is nil")
 	}
 	payload := struct {
+		Name             string      `json:"name,omitempty"`
 		WGPublicKey      string      `json:"wg_public_key"`
 		ControlPublicKey string      `json:"control_public_key"`
+		RootPublicKey    string      `json:"root_public_key,omitempty"`
+		IdentitySignature string     `json:"identity_signature,omitempty"`
+		Endpoint         string      `json:"endpoint,omitempty"`
+		AllowedIPs       []string    `json:"allowed_ips,omitempty"`
 		ListenPort       int         `json:"listen_port"`
 		Sequence         uint64      `json:"sequence"`
 		ObservedAt       string      `json:"observed_at"`
 		ExpiresAt        string      `json:"expires_at"`
 		Candidates       []Candidate `json:"candidates"`
 	}{
+		Name:             strings.TrimSpace(r.Name),
 		WGPublicKey:      strings.TrimSpace(r.WGPublicKey),
 		ControlPublicKey: strings.TrimSpace(r.ControlPublicKey),
+		RootPublicKey:    strings.TrimSpace(r.RootPublicKey),
+		IdentitySignature: strings.TrimSpace(r.IdentitySignature),
+		Endpoint:         strings.TrimSpace(r.Endpoint),
+		AllowedIPs:       dedupeAllowedIPs(r.AllowedIPs),
 		ListenPort:       r.ListenPort,
 		Sequence:         r.Sequence,
 		ObservedAt:       r.ObservedAt,
@@ -98,6 +118,27 @@ func (r *Record) Verify() error {
 	}
 	if err := config.ValidateControlPublicKey(r.ControlPublicKey); err != nil {
 		return fmt.Errorf("invalid control_public_key: %v", err)
+	}
+	if strings.TrimSpace(r.RootPublicKey) != "" || strings.TrimSpace(r.IdentitySignature) != "" {
+		if err := config.ValidateControlPublicKey(r.RootPublicKey); err != nil {
+			return fmt.Errorf("invalid root_public_key: %v", err)
+		}
+		if err := config.VerifyIdentityBinding(r.RootPublicKey, r.WGPublicKey, r.ControlPublicKey, r.IdentitySignature); err != nil {
+			return fmt.Errorf("invalid identity signature: %v", err)
+		}
+	}
+	if strings.TrimSpace(r.Endpoint) != "" {
+		if _, err := config.NormalizeEndpointHostPort(r.Endpoint); err != nil {
+			return fmt.Errorf("invalid endpoint: %v", err)
+		}
+	}
+	if len(r.AllowedIPs) == 0 {
+		return errors.New("allowed_ips are required")
+	}
+	for _, allowed := range r.AllowedIPs {
+		if _, err := config.NormalizeAddress(allowed); err != nil {
+			return fmt.Errorf("invalid allowed_ip %q: %v", allowed, err)
+		}
 	}
 	if r.ListenPort <= 0 || r.ListenPort > 65535 {
 		return errors.New("listen_port must be between 1 and 65535")
@@ -140,6 +181,12 @@ func (r *Record) VerifyForPeer(peer config.Peer) error {
 	if peer.ControlPublicKey != r.ControlPublicKey {
 		return errors.New("record control_public_key mismatch")
 	}
+	if strings.TrimSpace(peer.RootPublicKey) != "" && peer.RootPublicKey != r.RootPublicKey {
+		return errors.New("record root_public_key mismatch")
+	}
+	if strings.TrimSpace(peer.IdentitySignature) != "" && peer.IdentitySignature != r.IdentitySignature {
+		return errors.New("record identity_signature mismatch")
+	}
 	return nil
 }
 
@@ -178,6 +225,39 @@ func validateCandidate(candidate Candidate) error {
 		return fmt.Errorf("invalid candidate address %q: %v", candidate.Address, err)
 	}
 	return nil
+}
+
+func recordAllowedIPs(addr string) []string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return nil
+	}
+	norm, err := config.NormalizeAddress(addr)
+	if err != nil {
+		return nil
+	}
+	return []string{norm}
+}
+
+func dedupeAllowedIPs(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	var out []string
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		norm, err := config.NormalizeAddress(value)
+		if err != nil {
+			continue
+		}
+		if _, ok := seen[norm]; ok {
+			continue
+		}
+		seen[norm] = struct{}{}
+		out = append(out, norm)
+	}
+	return out
 }
 
 func dedupeCandidates(candidates []Candidate) []Candidate {

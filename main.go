@@ -24,7 +24,10 @@ func main() {
 	var cfgPath string
 	var reuse bool
 	var genkey bool
+	var genrootkey bool
+	var issuepeerkey bool
 	var genpsk bool
+	var rootPrivateKey string
 	var wgGoPath string
 	var down bool
 	var status bool
@@ -43,15 +46,20 @@ func main() {
 	var importPeer bool
 	var reload bool
 	var showVersion bool
+	var debug bool
 	var daemonMode bool
 	var serveRendezvous bool
 	var rendezvousListen string
+	var rendezvousTrustedRoots string
 	var rendezvousStatus string
 
 	flag.StringVar(&cfgPath, "config", "", "path to config json")
 	flag.BoolVar(&reuse, "reuse", false, "reuse existing wireguard device if present (linux only)")
-	flag.BoolVar(&genkey, "genkey", false, "generate a wireguard keypair and exit")
+	flag.BoolVar(&genkey, "genkey", false, "generate a WireGuard keypair and exit")
+	flag.BoolVar(&genrootkey, "genrootkey", false, "generate a root signing keypair and exit")
+	flag.BoolVar(&issuepeerkey, "issuepeerkey", false, "issue a peer identity bundle signed by -root-private-key and exit")
 	flag.BoolVar(&genpsk, "genpsk", false, "generate a preshared key and exit")
+	flag.StringVar(&rootPrivateKey, "root-private-key", "", "base64 root private key used with -issuepeerkey")
 	flag.StringVar(&wgGoPath, "wireguard-go", "", "path to wireguard-go binary (optional)")
 	flag.BoolVar(&down, "down", false, "remove interface and routes (linux/macOS)")
 	flag.BoolVar(&status, "status", false, "show wireguard device and peer status and exit")
@@ -70,9 +78,11 @@ func main() {
 	flag.BoolVar(&importPeer, "import", false, "import a peer json block into config")
 	flag.BoolVar(&reload, "reload", false, "re-read config and apply to existing interface")
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
+	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.BoolVar(&daemonMode, "daemon", false, "run wing as a long-lived control-plane daemon")
 	flag.BoolVar(&serveRendezvous, "serve-rendezvous", false, "run the rendezvous HTTP service")
 	flag.StringVar(&rendezvousListen, "rendezvous-listen", "", "listen address for -serve-rendezvous")
+	flag.StringVar(&rendezvousTrustedRoots, "rendezvous-trusted-roots", "", "comma-separated base64 root public keys trusted by -serve-rendezvous")
 	flag.StringVar(&rendezvousStatus, "rendezvous-status", "", "query configured rendezvous servers for self or a peer name/public key")
 	flag.Parse()
 
@@ -81,8 +91,8 @@ func main() {
 		return
 	}
 
-	if genkey || genpsk {
-		if err := handleKeygen(genkey, genpsk); err != nil {
+	if genkey || genrootkey || issuepeerkey || genpsk {
+		if err := handleKeygen(genkey, genrootkey, issuepeerkey, genpsk, rootPrivateKey); err != nil {
 			fatalf("keygen: %v", err)
 		}
 		return
@@ -106,9 +116,17 @@ func main() {
 		if rendezvousListen == "" {
 			rendezvousListen = config.DefaultRendezvousListen
 		}
+		trustedRoots := splitCommaSeparated(rendezvousTrustedRoots)
+		if len(trustedRoots) == 0 && strings.TrimSpace(cfgPath) != "" {
+			serveCfg, err := config.Load(cfgPath)
+			if err != nil {
+				fatalf("serve-rendezvous config: %v", err)
+			}
+			trustedRoots = append(trustedRoots, serveCfg.Rendezvous.TrustedRootPublicKeys...)
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		if err := rendezvous.Serve(ctx, rendezvousListen); err != nil {
+		if err := rendezvous.Serve(ctx, rendezvousListen, trustedRoots, debug); err != nil {
 			fatalf("serve-rendezvous: %v", err)
 		}
 		return
@@ -213,6 +231,9 @@ func main() {
 	if cfg.PrivateKey == "" {
 		fatalf("config: private_key required")
 	}
+	if cfg.PublicKey == "" {
+		fatalf("config: public_key required")
+	}
 	if cfg.Address == "" {
 		fatalf("config: address required")
 	}
@@ -291,4 +312,20 @@ func promptRequiredString(r *bufio.Reader, label string) (string, error) {
 		}
 		fmt.Printf("%s is required\n", label)
 	}
+}
+
+func splitCommaSeparated(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }

@@ -1,11 +1,14 @@
 package config
 
 type Config struct {
+	Name              string           `json:"name,omitempty"`
 	Interface         string           `json:"interface"`
 	PrivateKey        string           `json:"private_key"`
-	MyPublicKey       string           `json:"my_public_key"`
+	PublicKey         string           `json:"public_key"`
 	ControlPrivateKey string           `json:"control_private_key"`
 	ControlPublicKey  string           `json:"control_public_key"`
+	RootPublicKey     string           `json:"root_public_key,omitempty"`
+	IdentitySignature string           `json:"identity_signature,omitempty"`
 	MyEndpoint        string           `json:"my_endpoint"`
 	Address           string           `json:"address"` // e.g. "10.7.0.1/32"
 	ListenPort        int              `json:"listen_port"`
@@ -17,13 +20,15 @@ type Config struct {
 }
 
 type Peer struct {
-	Name             string   `json:"name"`
-	PublicKey        string   `json:"public_key"`
-	ControlPublicKey string   `json:"control_public_key,omitempty"`
-	Endpoint         string   `json:"endpoint"`          // "host:port"
-	DynamicEndpoint  bool     `json:"dynamic_endpoint"`  // allow rendezvous-published endpoint updates
-	AllowedIPs       []string `json:"allowed_ips"`       // only /32 in this minimal version
-	Keepalive        int      `json:"keepalive"`         // seconds
+	Name              string   `json:"name"`
+	PublicKey         string   `json:"public_key"`
+	ControlPublicKey  string   `json:"control_public_key,omitempty"`
+	RootPublicKey     string   `json:"root_public_key,omitempty"`
+	IdentitySignature string   `json:"identity_signature,omitempty"`
+	Endpoint          string   `json:"endpoint"`         // "host:port"
+	DynamicEndpoint   bool     `json:"dynamic_endpoint"` // allow rendezvous-published endpoint updates
+	AllowedIPs        []string `json:"allowed_ips"`      // only /32 in this minimal version
+	Keepalive         int      `json:"keepalive"`        // seconds
 }
 
 type State struct {
@@ -47,7 +52,7 @@ type DaemonConfig struct {
 }
 
 type RendezvousConfig struct {
-	URL    string   `json:"url"`
-	URLs   []string `json:"urls"`
-	Listen string   `json:"listen"`
+	URLs                  []string `json:"urls"`
+	Listen                string   `json:"listen"`
+	TrustedRootPublicKeys []string `json:"trusted_root_public_keys,omitempty"`
 }

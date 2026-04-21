@@ -279,7 +279,7 @@ func persistRuntimeIdentity(cfgPath string, cfg *config.Config) error {
 	if err := config.EnsureRuntimeIdentity(cfg); err != nil {
 		return err
 	}
-	if before.MyPublicKey == cfg.MyPublicKey &&
+	if before.PublicKey == cfg.PublicKey &&
 		before.ControlPrivateKey == cfg.ControlPrivateKey &&
 		before.ControlPublicKey == cfg.ControlPublicKey {
 		return nil

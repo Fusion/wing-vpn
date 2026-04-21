@@ -117,12 +117,7 @@ func ApplyDefaults(cfg *Config) {
 		cfg.Daemon.ProbePort = DefaultProbePort
 	}
 	cfg.Rendezvous.URLs = dedupeStrings(cfg.Rendezvous.URLs)
-	if len(cfg.Rendezvous.URLs) == 0 && strings.TrimSpace(cfg.Rendezvous.URL) != "" {
-		cfg.Rendezvous.URLs = []string{strings.TrimSpace(cfg.Rendezvous.URL)}
-	}
-	if strings.TrimSpace(cfg.Rendezvous.URL) == "" && len(cfg.Rendezvous.URLs) > 0 {
-		cfg.Rendezvous.URL = cfg.Rendezvous.URLs[0]
-	}
+	cfg.Rendezvous.TrustedRootPublicKeys = dedupeStrings(cfg.Rendezvous.TrustedRootPublicKeys)
 	if strings.TrimSpace(cfg.Rendezvous.Listen) == "" {
 		cfg.Rendezvous.Listen = DefaultRendezvousListen
 	}
@@ -155,12 +150,12 @@ func EnsureRuntimeIdentity(cfg *Config) error {
 		return errors.New("config is nil")
 	}
 	ApplyDefaults(cfg)
-	if strings.TrimSpace(cfg.MyPublicKey) == "" && strings.TrimSpace(cfg.PrivateKey) != "" {
+	if strings.TrimSpace(cfg.PublicKey) == "" && strings.TrimSpace(cfg.PrivateKey) != "" {
 		pub, err := PublicKeyFromPrivate(cfg.PrivateKey)
 		if err != nil {
 			return err
 		}
-		cfg.MyPublicKey = pub
+		cfg.PublicKey = pub
 	}
 	return EnsureControlKeys(cfg)
 }
@@ -179,12 +174,7 @@ func EffectiveRendezvousURLs(cfg *Config) []string {
 	if cfg == nil {
 		return nil
 	}
-	var urls []string
-	if strings.TrimSpace(cfg.Rendezvous.URL) != "" {
-		urls = append(urls, strings.TrimSpace(cfg.Rendezvous.URL))
-	}
-	urls = append(urls, cfg.Rendezvous.URLs...)
-	return dedupeStrings(urls)
+	return dedupeStrings(cfg.Rendezvous.URLs)
 }
 
 func dedupeStrings(values []string) []string {

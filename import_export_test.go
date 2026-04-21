@@ -20,14 +20,24 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateControlKeypair error: %v", err)
 	}
+	rootPriv, rootPub, err := config.GenerateRootKeypair()
+	if err != nil {
+		t.Fatalf("GenerateRootKeypair error: %v", err)
+	}
+	identitySig, err := config.SignIdentityBinding(rootPriv, pub, controlPub)
+	if err != nil {
+		t.Fatalf("SignIdentityBinding error: %v", err)
+	}
 
 	cfg := &config.Config{
-		Interface:        "wgwing0",
-		MyPublicKey:      pub,
-		ControlPublicKey: controlPub,
-		MyEndpoint:       "1.2.3.4:51821",
-		Address:          "10.7.0.1",
-		Peers:            []config.Peer{},
+		Interface:         "wgwing0",
+		PublicKey:         pub,
+		ControlPublicKey:  controlPub,
+		RootPublicKey:     rootPub,
+		IdentitySignature: identitySig,
+		MyEndpoint:        "1.2.3.4:51821",
+		Address:           "10.7.0.1",
+		Peers:             []config.Peer{},
 	}
 
 	out := captureStdout(t, func() {
@@ -71,6 +81,12 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 	if p.ControlPublicKey != peer.ControlPublicKey {
 		t.Fatalf("control_public_key mismatch: %q vs %q", p.ControlPublicKey, peer.ControlPublicKey)
+	}
+	if p.RootPublicKey != peer.RootPublicKey {
+		t.Fatalf("root_public_key mismatch: %q vs %q", p.RootPublicKey, peer.RootPublicKey)
+	}
+	if p.IdentitySignature != peer.IdentitySignature {
+		t.Fatalf("identity_signature mismatch: %q vs %q", p.IdentitySignature, peer.IdentitySignature)
 	}
 	if p.Endpoint != peer.Endpoint {
 		t.Fatalf("endpoint mismatch: %q vs %q", p.Endpoint, peer.Endpoint)

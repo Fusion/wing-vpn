@@ -94,14 +94,14 @@ func PeerExists(cfg *Config, name, pubKey string) bool {
 }
 
 func BuildExportPeer(cfg *Config, name string) (Peer, error) {
-	pub := strings.TrimSpace(cfg.MyPublicKey)
+	pub := strings.TrimSpace(cfg.PublicKey)
 	if pub == "" && cfg.PrivateKey != "" {
 		if p, err := PublicKeyFromPrivate(cfg.PrivateKey); err == nil {
 			pub = p
 		}
 	}
 	if pub == "" {
-		return Peer{}, errors.New("my_public_key is empty")
+		return Peer{}, errors.New("public_key is empty")
 	}
 	if cfg.Address == "" {
 		return Peer{}, errors.New("address is empty")
@@ -121,6 +121,8 @@ func BuildExportPeer(cfg *Config, name string) (Peer, error) {
 		Name:             name,
 		PublicKey:        pub,
 		ControlPublicKey: strings.TrimSpace(cfg.ControlPublicKey),
+		RootPublicKey:    strings.TrimSpace(cfg.RootPublicKey),
+		IdentitySignature: strings.TrimSpace(cfg.IdentitySignature),
 		Endpoint:         endpoint,
 		DynamicEndpoint:  true,
 		AllowedIPs:       []string{addr},
@@ -148,6 +150,11 @@ func NormalizeImportPeer(peer Peer) (Peer, error) {
 			return Peer{}, fmt.Errorf("invalid control_public_key: %v", err)
 		}
 	}
+	if peer.RootPublicKey != "" {
+		if err := ValidateControlPublicKey(peer.RootPublicKey); err != nil {
+			return Peer{}, fmt.Errorf("invalid root_public_key: %v", err)
+		}
+	}
 	if peer.Endpoint != "" {
 		endpoint, err := NormalizeEndpointHostPort(peer.Endpoint)
 		if err != nil {
@@ -169,6 +176,14 @@ func NormalizeImportPeer(peer Peer) (Peer, error) {
 	peer.AllowedIPs = allowed
 	if peer.Keepalive <= 0 {
 		peer.Keepalive = 25
+	}
+	if peer.RootPublicKey != "" || peer.IdentitySignature != "" {
+		if peer.RootPublicKey == "" || peer.IdentitySignature == "" {
+			return Peer{}, errors.New("root_public_key and identity_signature must be provided together")
+		}
+		if err := VerifyIdentityBinding(peer.RootPublicKey, peer.PublicKey, peer.ControlPublicKey, peer.IdentitySignature); err != nil {
+			return Peer{}, fmt.Errorf("invalid identity signature: %v", err)
+		}
 	}
 	return peer, nil
 }

@@ -60,7 +60,22 @@ func TestInitConfigAtCreatesPeersArray(t *testing.T) {
 func TestWriteConfigPeersNotNull(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.json")
-	cfg := &config.Config{Interface: "wgwing0", PrivateKey: "x", Peers: nil}
+	priv, pub, err := config.GenerateKeypair()
+	if err != nil {
+		t.Fatalf("GenerateKeypair error: %v", err)
+	}
+	cpriv, cpub, err := config.GenerateControlKeypair()
+	if err != nil {
+		t.Fatalf("GenerateControlKeypair error: %v", err)
+	}
+	cfg := &config.Config{
+		Interface:         "wgwing0",
+		PrivateKey:        priv,
+		PublicKey:         pub,
+		ControlPrivateKey: cpriv,
+		ControlPublicKey:  cpub,
+		Peers:             nil,
+	}
 	if err := config.Write(path, cfg); err != nil {
 		t.Fatalf("writeConfig error: %v", err)
 	}
@@ -94,10 +109,27 @@ func TestEnsureRuntimeIdentityBackfillsControlKeys(t *testing.T) {
 	}
 }
 
-func TestEffectiveRendezvousURLsSupportsLegacyAndRedundantForms(t *testing.T) {
+func TestIssuePeerIdentityProducesVerifiableBundle(t *testing.T) {
+	rootPriv, rootPub, err := config.GenerateRootKeypair()
+	if err != nil {
+		t.Fatalf("GenerateRootKeypair error: %v", err)
+	}
+	issued, err := config.IssuePeerIdentity(rootPriv)
+	if err != nil {
+		t.Fatalf("IssuePeerIdentity error: %v", err)
+	}
+	if issued.RootPublicKey != rootPub {
+		t.Fatalf("root public key mismatch: %q vs %q", issued.RootPublicKey, rootPub)
+	}
+	if err := config.VerifyIdentityBinding(issued.RootPublicKey, issued.PublicKey, issued.ControlPublicKey, issued.IdentitySignature); err != nil {
+		t.Fatalf("VerifyIdentityBinding error: %v", err)
+	}
+}
+
+func TestEffectiveRendezvousURLsDedupesConfiguredList(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Rendezvous.URL = "http://rv1.example.com:8787"
 	cfg.Rendezvous.URLs = []string{
+		"http://rv1.example.com:8787",
 		"http://rv2.example.com:8787",
 		"http://rv1.example.com:8787",
 		"  ",

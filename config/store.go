@@ -21,10 +21,13 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	ApplyDefaults(&c)
-	if c.MyPublicKey == "" && c.PrivateKey != "" {
+	if c.PublicKey == "" && c.PrivateKey != "" {
 		if pub, err := PublicKeyFromPrivate(c.PrivateKey); err == nil {
-			c.MyPublicKey = pub
+			c.PublicKey = pub
 		}
+	}
+	if err := EnsureRuntimeIdentity(&c); err != nil {
+		return nil, err
 	}
 	return &c, nil
 }
@@ -68,7 +71,7 @@ func InitAt(path string) (bool, error) {
 	cfg := Config{
 		Interface:         DefaultInterfaceName(),
 		PrivateKey:        priv,
-		MyPublicKey:       pub,
+		PublicKey:         pub,
 		ControlPrivateKey: controlPriv,
 		ControlPublicKey:  controlPub,
 		MyEndpoint:        "",
@@ -91,7 +94,9 @@ func InitAt(path string) (bool, error) {
 }
 
 func Write(path string, cfg *Config) error {
-	ApplyDefaults(cfg)
+	if err := EnsureRuntimeIdentity(cfg); err != nil {
+		return err
+	}
 	if cfg.Peers == nil {
 		cfg.Peers = []Peer{}
 	}
