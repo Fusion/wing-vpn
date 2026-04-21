@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,14 +14,50 @@ import (
 	"wing/rendezvous"
 )
 
-func HandleRendezvousStatus(cfg *config.Config, query string) error {
+type rendezvousLookupResult struct {
+	Server string             `json:"server"`
+	Error  string             `json:"error,omitempty"`
+	Record *rendezvous.Record `json:"record,omitempty"`
+}
+
+type rendezvousWinner struct {
+	Server string             `json:"server"`
+	Record *rendezvous.Record `json:"record,omitempty"`
+}
+
+type rendezvousStatusResult struct {
+	Target      string                  `json:"target"`
+	WGPublicKey string                  `json:"wg_public_key"`
+	Servers     []rendezvousLookupResult `json:"servers"`
+	Winner      *rendezvousWinner       `json:"winner,omitempty"`
+}
+
+type rendezvousServerListing struct {
+	Server  string              `json:"server"`
+	Error   string              `json:"error,omitempty"`
+	Records []rendezvous.Record `json:"records,omitempty"`
+}
+
+type mergedRendezvousRecord struct {
+	WGPublicKey string            `json:"wg_public_key"`
+	Winner      string            `json:"winner"`
+	Record      rendezvous.Record `json:"record"`
+}
+
+type rendezvousListResult struct {
+	Target        string                   `json:"target"`
+	Servers       []rendezvousServerListing `json:"servers"`
+	MergedRecords []mergedRendezvousRecord `json:"merged_records,omitempty"`
+}
+
+func HandleRendezvousStatus(cfg *config.Config, query string, jsonOutput bool) error {
 	urls := config.EffectiveRendezvousURLs(cfg)
 	if len(urls) == 0 {
 		return errors.New("no rendezvous urls configured")
 	}
 	query = strings.TrimSpace(query)
 	if query == "all" || query == "*" {
-		return handleRendezvousListStatus(urls)
+		return handleRendezvousListStatus(urls, jsonOutput)
 	}
 
 	targetLabel, targetPub, err := resolveRendezvousTarget(cfg, query)
@@ -28,16 +65,40 @@ func HandleRendezvousStatus(cfg *config.Config, query string) error {
 		return err
 	}
 
-	fmt.Printf("target: %s\n", targetLabel)
-	fmt.Printf("wg_public_key: %s\n", targetPub)
+	if !jsonOutput {
+		fmt.Printf("target: %s\n", targetLabel)
+		fmt.Printf("wg_public_key: %s\n", targetPub)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	result := rendezvousStatusResult{
+		Target:      targetLabel,
+		WGPublicKey: targetPub,
+		Servers:     make([]rendezvousLookupResult, 0, len(urls)),
+	}
 	var latest *rendezvous.Record
 	var latestSource string
 	for _, baseURL := range urls {
 		record, err := rendezvous.Fetch(ctx, baseURL, targetPub)
+		entry := rendezvousLookupResult{Server: baseURL}
+		if err != nil {
+			entry.Error = err.Error()
+		} else {
+			entry.Record = record
+		}
+		result.Servers = append(result.Servers, entry)
+		if jsonOutput {
+			if err != nil || record == nil {
+				continue
+			}
+			if latest == nil || record.Sequence > latest.Sequence {
+				latest = record
+				latestSource = baseURL
+			}
+			continue
+		}
 		fmt.Printf("server: %s\n", baseURL)
 		if err != nil {
 			fmt.Printf("  error: %v\n", err)
@@ -54,6 +115,17 @@ func HandleRendezvousStatus(cfg *config.Config, query string) error {
 		}
 	}
 
+	if latest != nil {
+		result.Winner = &rendezvousWinner{
+			Server: latestSource,
+			Record: latest,
+		}
+	}
+
+	if jsonOutput {
+		return writeJSON(result)
+	}
+
 	if latest == nil {
 		fmt.Printf("winner: (none)\n")
 		return nil
@@ -64,7 +136,7 @@ func HandleRendezvousStatus(cfg *config.Config, query string) error {
 	return nil
 }
 
-func handleRendezvousListStatus(urls []string) error {
+func handleRendezvousListStatus(urls []string, jsonOutput bool) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -77,11 +149,24 @@ func handleRendezvousListStatus(urls []string) error {
 	listings := make([]serverListing, 0, len(urls))
 	merged := make(map[string]rendezvous.Record)
 	winners := make(map[string]string)
+	result := rendezvousListResult{
+		Target:  "all",
+		Servers: make([]rendezvousServerListing, 0, len(urls)),
+	}
 
-	fmt.Printf("target: all\n")
+	if !jsonOutput {
+		fmt.Printf("target: all\n")
+	}
 	for _, baseURL := range urls {
 		records, err := rendezvous.FetchAll(ctx, baseURL)
 		listings = append(listings, serverListing{baseURL: baseURL, records: records, err: err})
+		entry := rendezvousServerListing{Server: baseURL}
+		if err != nil {
+			entry.Error = err.Error()
+		} else {
+			entry.Records = append([]rendezvous.Record(nil), records...)
+		}
+		result.Servers = append(result.Servers, entry)
 		if err != nil {
 			continue
 		}
@@ -92,6 +177,24 @@ func handleRendezvousListStatus(urls []string) error {
 				winners[record.WGPublicKey] = baseURL
 			}
 		}
+	}
+
+	keys := make([]string, 0, len(merged))
+	for key := range merged {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		record := merged[key]
+		result.MergedRecords = append(result.MergedRecords, mergedRendezvousRecord{
+			WGPublicKey: key,
+			Winner:      winners[key],
+			Record:      record,
+		})
+	}
+
+	if jsonOutput {
+		return writeJSON(result)
 	}
 
 	for _, listing := range listings {
@@ -115,12 +218,6 @@ func handleRendezvousListStatus(urls []string) error {
 		fmt.Printf("merged_records: (none)\n")
 		return nil
 	}
-
-	keys := make([]string, 0, len(merged))
-	for key := range merged {
-		keys = append(keys, key)
-	}
-	slices.Sort(keys)
 
 	// The merged view is newest-by-sequence across servers, not a claim that
 	// every server agreed on the same record contents.
@@ -196,4 +293,13 @@ func printRendezvousRecordWithIndent(record *rendezvous.Record, indent string) {
 
 func PrintRendezvousStatusHint() {
 	fmt.Fprintf(os.Stderr, "hint: use -rendezvous-status self, -rendezvous-status all, or -rendezvous-status <peer-name-or-public-key>\n")
+}
+
+func writeJSON(value any) error {
+	encoded, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(encoded))
+	return nil
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -70,6 +71,24 @@ func TestResolveRendezvousTargetAllHandledSeparately(t *testing.T) {
 	}
 	if _, _, err := resolveRendezvousTarget(cfg, "all"); err == nil {
 		t.Fatalf("expected HandleRendezvousStatus to treat all specially before resolve")
+	}
+}
+
+func TestWriteJSONProducesIndentedObject(t *testing.T) {
+	out := captureOutput(t, func() {
+		if err := writeJSON(map[string]string{"mode": "json"}); err != nil {
+			t.Fatalf("writeJSON error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "\"mode\": \"json\"") {
+		t.Fatalf("expected json output, got %q", out)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+	if decoded["mode"] != "json" {
+		t.Fatalf("decoded mode = %q, want %q", decoded["mode"], "json")
 	}
 }
 
