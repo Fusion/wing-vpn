@@ -47,6 +47,7 @@ func main() {
 	var showVersion bool
 	var debug bool
 	var jsonOutput bool
+	var graphOutput string
 	var daemonMode bool
 	var serveRendezvous bool
 	var rendezvousListen string
@@ -80,6 +81,7 @@ func main() {
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.BoolVar(&debug, "debug", false, "enable debug logging")
 	flag.BoolVar(&jsonOutput, "json", false, "format supported command output as json")
+	flag.StringVar(&graphOutput, "graph", "", "write supported command output as a graph html file")
 	flag.BoolVar(&daemonMode, "daemon", false, "run wing as a long-lived control-plane daemon")
 	flag.BoolVar(&serveRendezvous, "serve-rendezvous", false, "run the rendezvous HTTP service")
 	flag.StringVar(&rendezvousListen, "rendezvous-listen", "", "listen address for -serve-rendezvous")
@@ -187,7 +189,7 @@ func main() {
 		return
 	}
 	if rendezvousStatus != "" {
-		if err := cli.HandleRendezvousStatus(cfg, rendezvousStatus, jsonOutput); err != nil {
+		if err := cli.HandleRendezvousStatus(cfg, rendezvousStatus, jsonOutput, graphOutput); err != nil {
 			cli.PrintRendezvousStatusHint()
 			fatalf("rendezvous-status: %v", err)
 		}

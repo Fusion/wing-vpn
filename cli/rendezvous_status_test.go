@@ -92,6 +92,27 @@ func TestWriteJSONProducesIndentedObject(t *testing.T) {
 	}
 }
 
+func TestRenderGraphHTMLIncludesNodesAndEdges(t *testing.T) {
+	htmlDoc, err := renderGraphHTML(graphPage{
+		Title: "graph test",
+		Nodes: []graphNode{
+			{ID: "server:rv1", Label: "rv1", Kind: "server", Detail: "records: 1"},
+			{ID: "peer:oak", Label: "oak", Kind: "peer", Detail: "endpoint: 1.2.3.4:51821"},
+		},
+		Edges: []graphEdge{
+			{From: "server:rv1", To: "peer:oak", Highlight: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("renderGraphHTML error: %v", err)
+	}
+	for _, needle := range []string{"graph test", "\"server:rv1\"", "\"peer:oak\"", "\"highlight\":true"} {
+		if !strings.Contains(htmlDoc, needle) {
+			t.Fatalf("expected %q in html output", needle)
+		}
+	}
+}
+
 func TestPrintRendezvousRecordWithIndent(t *testing.T) {
 	record := &rendezvous.Record{
 		Name:             "oak",
