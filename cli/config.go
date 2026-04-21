@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bufio"
@@ -15,7 +15,7 @@ import (
 	"wing/config"
 )
 
-func handleInit() error {
+func HandleInit() error {
 	path, err := config.SelfPath()
 	if err != nil {
 		return err
@@ -32,7 +32,7 @@ func handleInit() error {
 	return nil
 }
 
-func handleSetup(cfgPath, addr string, port int, mtu int) error {
+func HandleSetup(cfgPath, addr string, port int, mtu int) error {
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return err
@@ -84,14 +84,12 @@ func handleSetup(cfgPath, addr string, port int, mtu int) error {
 		}
 	}
 	if port <= 0 {
-		var err error
 		port, err = promptInt(reader, "listen port", defPort)
 		if err != nil {
 			return err
 		}
 	}
 	if mtu <= 0 {
-		var err error
 		mtu, err = promptInt(reader, "mtu", defMTU)
 		if err != nil {
 			return err
@@ -136,6 +134,8 @@ func handleSetup(cfgPath, addr string, port int, mtu int) error {
 		cfg.Rendezvous.URLs = splitCommaSeparated(rendezvousInput)
 	}
 	if issued != nil {
+		// Controller-issued identity material replaces the full local identity
+		// bundle in one shot.
 		cfg.PrivateKey = issued.PrivateKey
 		cfg.PublicKey = issued.PublicKey
 		cfg.ControlPrivateKey = issued.ControlPrivateKey
@@ -151,7 +151,7 @@ func handleSetup(cfgPath, addr string, port int, mtu int) error {
 	return nil
 }
 
-func handleListPeers(cfg *config.Config) error {
+func HandleListPeers(cfg *config.Config) error {
 	if len(cfg.Peers) == 0 {
 		fmt.Printf("peers: (none)\n")
 		return nil
@@ -241,6 +241,8 @@ func parseIssuedIdentityBlock(input string) (*config.IssuedPeerIdentity, error) 
 		return nil, nil
 	}
 	if !strings.HasPrefix(input, "{") {
+		// -issuepeerkey emits JSON-like key/value lines rather than a full JSON
+		// object, so wrap the pasted block and trim the final trailing comma.
 		lines := strings.Split(input, "\n")
 		for i := len(lines) - 1; i >= 0; i-- {
 			trimmed := strings.TrimSpace(lines[i])
@@ -303,7 +305,7 @@ func parseIssuedIdentityBlock(input string) (*config.IssuedPeerIdentity, error) 
 	return &issued, nil
 }
 
-func handleAddPeer(cfgPath string, cfg *config.Config) error {
+func HandleAddPeer(cfgPath string, cfg *config.Config) error {
 	if cfg.Peers == nil {
 		cfg.Peers = []config.Peer{}
 	}
@@ -386,15 +388,15 @@ func handleAddPeer(cfgPath string, cfg *config.Config) error {
 	}
 
 	cfg.Peers = append(cfg.Peers, config.Peer{
-		Name:             name,
-		PublicKey:        strings.TrimSpace(pubKey),
-		ControlPublicKey: controlPub,
-		RootPublicKey:    rootPub,
+		Name:              name,
+		PublicKey:         strings.TrimSpace(pubKey),
+		ControlPublicKey:  controlPub,
+		RootPublicKey:     rootPub,
 		IdentitySignature: identitySig,
-		Endpoint:         strings.TrimSpace(endpoint),
-		DynamicEndpoint:  controlPub != "",
-		AllowedIPs:       []string{allowed},
-		Keepalive:        keepalive,
+		Endpoint:          strings.TrimSpace(endpoint),
+		DynamicEndpoint:   controlPub != "",
+		AllowedIPs:        []string{allowed},
+		Keepalive:         keepalive,
 	})
 
 	if err := config.Write(cfgPath, cfg); err != nil {
@@ -404,7 +406,7 @@ func handleAddPeer(cfgPath string, cfg *config.Config) error {
 	return nil
 }
 
-func handleRemovePeer(cfgPath string, cfg *config.Config) error {
+func HandleRemovePeer(cfgPath string, cfg *config.Config) error {
 	if cfg.Peers == nil {
 		cfg.Peers = []config.Peer{}
 	}
@@ -438,13 +440,13 @@ func handleRemovePeer(cfgPath string, cfg *config.Config) error {
 	return nil
 }
 
-func handleExport(cfg *config.Config) error {
+func HandleExport(cfg *config.Config) error {
 	name := strings.TrimSpace(cfg.Name)
 	if name == "" {
 		var err error
 		name, err = os.Hostname()
 		if err != nil || strings.TrimSpace(name) == "" {
-		// Keep export JSON valid even if hostname lookup fails.
+			// Keep export JSON valid even if hostname lookup fails.
 			name = "peer"
 		}
 	}
@@ -460,7 +462,7 @@ func handleExport(cfg *config.Config) error {
 	return nil
 }
 
-func handleImport(cfgPath string, cfg *config.Config) error {
+func HandleImport(cfgPath string, cfg *config.Config) error {
 	if cfg.Peers == nil {
 		cfg.Peers = []config.Peer{}
 	}

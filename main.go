@@ -1,24 +1,23 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
 
+	"wing/cli"
 	"wing/config"
 	"wing/rendezvous"
 	"wing/wireguard"
 )
 
-const version = "0.1.0"
+func printStartupBanner(mode string) {
+	fmt.Printf("wing-vpn v%s (%q mode)\n", version, mode)
+}
 
 func main() {
 	var cfgPath string
@@ -92,14 +91,14 @@ func main() {
 	}
 
 	if genkey || genrootkey || issuepeerkey || genpsk {
-		if err := handleKeygen(genkey, genrootkey, issuepeerkey, genpsk, rootPrivateKey); err != nil {
+		if err := cli.HandleKeygen(genkey, genrootkey, issuepeerkey, genpsk, rootPrivateKey); err != nil {
 			fatalf("keygen: %v", err)
 		}
 		return
 	}
 
 	if initCfg {
-		if err := handleInit(); err != nil {
+		if err := cli.HandleInit(); err != nil {
 			fatalf("init: %v", err)
 		}
 		return
@@ -126,6 +125,7 @@ func main() {
 		}
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		printStartupBanner("rendezvous")
 		if err := rendezvous.Serve(ctx, rendezvousListen, trustedRoots, debug); err != nil {
 			fatalf("serve-rendezvous: %v", err)
 		}
@@ -154,7 +154,7 @@ func main() {
 	}
 
 	if setup {
-		if err := handleSetup(cfgPath, setupAddr, setupPort, setupMTU); err != nil {
+		if err := cli.HandleSetup(cfgPath, setupAddr, setupPort, setupMTU); err != nil {
 			fatalf("setup: %v", err)
 		}
 		return
@@ -164,7 +164,7 @@ func main() {
 	if err != nil {
 		fatalf("config: %v", err)
 	}
-	if err := persistRuntimeIdentity(cfgPath, cfg); err != nil {
+	if err := config.PersistRuntimeIdentity(cfgPath, cfg); err != nil {
 		fatalf("config identity: %v", err)
 	}
 
@@ -185,8 +185,8 @@ func main() {
 		return
 	}
 	if rendezvousStatus != "" {
-		if err := handleRendezvousStatus(cfg, rendezvousStatus); err != nil {
-			printRendezvousStatusHint()
+		if err := cli.HandleRendezvousStatus(cfg, rendezvousStatus); err != nil {
+			cli.PrintRendezvousStatusHint()
 			fatalf("rendezvous-status: %v", err)
 		}
 		return
@@ -198,31 +198,31 @@ func main() {
 		return
 	}
 	if listPeers {
-		if err := handleListPeers(cfg); err != nil {
+		if err := cli.HandleListPeers(cfg); err != nil {
 			fatalf("list-peers: %v", err)
 		}
 		return
 	}
 	if addPeer {
-		if err := handleAddPeer(cfgPath, cfg); err != nil {
+		if err := cli.HandleAddPeer(cfgPath, cfg); err != nil {
 			fatalf("add-peer: %v", err)
 		}
 		return
 	}
 	if removePeer {
-		if err := handleRemovePeer(cfgPath, cfg); err != nil {
+		if err := cli.HandleRemovePeer(cfgPath, cfg); err != nil {
 			fatalf("remove-peer: %v", err)
 		}
 		return
 	}
 	if exportPeer {
-		if err := handleExport(cfg); err != nil {
+		if err := cli.HandleExport(cfg); err != nil {
 			fatalf("export: %v", err)
 		}
 		return
 	}
 	if importPeer {
-		if err := handleImport(cfgPath, cfg); err != nil {
+		if err := cli.HandleImport(cfgPath, cfg); err != nil {
 			fatalf("import: %v", err)
 		}
 		return
@@ -246,6 +246,7 @@ func main() {
 		if detach {
 			fatalf("-detach cannot be used with -daemon; run it under a service manager")
 		}
+		printStartupBanner("daemon")
 		if err := runDaemon(cfgPath, cfg, wgGoPath, reuse); err != nil {
 			fatalf("daemon: %v", err)
 		}
@@ -270,48 +271,6 @@ func main() {
 func fatalf(msg string, args ...any) {
 	fmt.Fprintf(os.Stderr, msg+"\n", args...)
 	os.Exit(1)
-}
-
-func promptString(r *bufio.Reader, label, def string) (string, error) {
-	if def != "" {
-		fmt.Printf("%s [%s]: ", label, def)
-	} else {
-		fmt.Printf("%s: ", label)
-	}
-	line, err := r.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", err
-	}
-	s := strings.TrimSpace(line)
-	if s == "" {
-		return def, nil
-	}
-	return s, nil
-}
-
-func promptInt(r *bufio.Reader, label string, def int) (int, error) {
-	val, err := promptString(r, label, strconv.Itoa(def))
-	if err != nil {
-		return 0, err
-	}
-	n, err := strconv.Atoi(val)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid %s: %q", label, val)
-	}
-	return n, nil
-}
-
-func promptRequiredString(r *bufio.Reader, label string) (string, error) {
-	for {
-		s, err := promptString(r, label, "")
-		if err != nil {
-			return "", err
-		}
-		if strings.TrimSpace(s) != "" {
-			return s, nil
-		}
-		fmt.Printf("%s is required\n", label)
-	}
 }
 
 func splitCommaSeparated(value string) []string {

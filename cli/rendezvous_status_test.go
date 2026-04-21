@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"bytes"
@@ -10,6 +10,21 @@ import (
 	"wing/config"
 	"wing/rendezvous"
 )
+
+func captureOutput(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe error: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = old
+	b, _ := io.ReadAll(r)
+	return string(bytes.TrimSpace(b))
+}
 
 func TestResolveRendezvousTargetSelf(t *testing.T) {
 	cfg := &config.Config{
@@ -54,23 +69,8 @@ func TestResolveRendezvousTargetAllHandledSeparately(t *testing.T) {
 		PublicKey: "self-pub",
 	}
 	if _, _, err := resolveRendezvousTarget(cfg, "all"); err == nil {
-		t.Fatalf("expected handleRendezvousStatus to treat all specially before resolve")
+		t.Fatalf("expected HandleRendezvousStatus to treat all specially before resolve")
 	}
-}
-
-func captureOutput(t *testing.T, fn func()) string {
-	t.Helper()
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe error: %v", err)
-	}
-	os.Stdout = w
-	fn()
-	_ = w.Close()
-	os.Stdout = old
-	b, _ := io.ReadAll(r)
-	return string(bytes.TrimSpace(b))
 }
 
 func TestPrintRendezvousRecordWithIndent(t *testing.T) {

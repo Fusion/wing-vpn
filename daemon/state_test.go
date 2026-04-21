@@ -1,4 +1,4 @@
-package main
+package daemon
 
 import (
 	"testing"
@@ -34,7 +34,7 @@ func newIssuedRecord(t *testing.T, rootPrivateKey, name, address, endpoint strin
 		Type:    "configured",
 		Address: endpoint,
 		Source:  "config",
-	}}, time.Unix(1713657600, 0))
+	}}, time.Now())
 	if err != nil {
 		t.Fatalf("NewRecord error: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestResolvePeerFromRecordAdoptsUnknownTrustedPeer(t *testing.T) {
 		t.Fatalf("GenerateRootKeypair error: %v", err)
 	}
 	record := newIssuedRecord(t, rootPriv, "maple", "10.7.0.9/32", "203.0.113.20:51821")
-	d := &daemonState{
+	d := &State{
 		cfg: &config.Config{
 			RootPublicKey: rootPub,
 			Daemon: config.DaemonConfig{
@@ -191,7 +191,7 @@ func TestResolvePeerFromRecordRejectsUnknownPeerFromAnotherRoot(t *testing.T) {
 		t.Fatalf("GenerateRootKeypair other root error: %v", err)
 	}
 	record := newIssuedRecord(t, otherRootPriv, "birch", "10.7.0.8/32", "198.51.100.40:51821")
-	d := &daemonState{
+	d := &State{
 		cfg: &config.Config{
 			RootPublicKey: trustedRootPub,
 			Daemon: config.DaemonConfig{

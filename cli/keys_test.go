@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"strings"
@@ -9,8 +9,8 @@ import (
 
 func TestHandleKeygenRootKey(t *testing.T) {
 	out := captureStdout(t, func() {
-		if err := handleKeygen(false, true, false, false, ""); err != nil {
-			t.Fatalf("handleKeygen error: %v", err)
+		if err := HandleKeygen(false, true, false, false, ""); err != nil {
+			t.Fatalf("HandleKeygen error: %v", err)
 		}
 	})
 	if !strings.Contains(out, "root_private_key:") {
@@ -27,8 +27,8 @@ func TestHandleKeygenIssuePeerKey(t *testing.T) {
 		t.Fatalf("GenerateRootKeypair error: %v", err)
 	}
 	out := captureStdout(t, func() {
-		if err := handleKeygen(false, false, true, false, rootPriv); err != nil {
-			t.Fatalf("handleKeygen error: %v", err)
+		if err := HandleKeygen(false, false, true, false, rootPriv); err != nil {
+			t.Fatalf("HandleKeygen error: %v", err)
 		}
 	})
 	for _, needle := range []string{

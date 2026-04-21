@@ -1,9 +1,7 @@
-package main
+package cli
 
 import (
 	"encoding/json"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -41,8 +39,8 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		if err := handleExport(cfg); err != nil {
-			t.Fatalf("handleExport error: %v", err)
+		if err := HandleExport(cfg); err != nil {
+			t.Fatalf("HandleExport error: %v", err)
 		}
 	})
 
@@ -63,8 +61,8 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 
 	withStdin(t, out, func() {
-		if err := handleImport(path, cfg2); err != nil {
-			t.Fatalf("handleImport error: %v", err)
+		if err := HandleImport(path, cfg2); err != nil {
+			t.Fatalf("HandleImport error: %v", err)
 		}
 	})
 
@@ -99,33 +97,6 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 }
 
-func captureStdout(t *testing.T, fn func()) string {
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe error: %v", err)
-	}
-	os.Stdout = w
-	fn()
-	_ = w.Close()
-	os.Stdout = old
-	b, _ := io.ReadAll(r)
-	return string(b)
-}
-
-func withStdin(t *testing.T, input string, fn func()) {
-	old := os.Stdin
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe error: %v", err)
-	}
-	_, _ = w.Write([]byte(input))
-	_ = w.Close()
-	os.Stdin = r
-	fn()
-	os.Stdin = old
-}
-
 func TestImportRejectsDuplicateName(t *testing.T) {
 	_, pub, err := config.GenerateKeypair()
 	if err != nil {
@@ -150,7 +121,7 @@ func TestImportRejectsDuplicateName(t *testing.T) {
 }`
 
 	withStdin(t, peerJSON, func() {
-		err := handleImport(path, cfg)
+		err := HandleImport(path, cfg)
 		if err == nil {
 			t.Fatalf("expected duplicate name error")
 		}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -178,6 +179,11 @@ func Serve(ctx context.Context, listen string, trustedRootPublicKeys []string, d
 		Addr:    listen,
 		Handler: handler,
 	}
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("rendezvous: listening on %s\n", ln.Addr().String())
 	errc := make(chan error, 1)
 	go func() {
 		<-ctx.Done()
@@ -186,7 +192,7 @@ func Serve(ctx context.Context, listen string, trustedRootPublicKeys []string, d
 		_ = srv.Shutdown(shutdownCtx)
 	}()
 	go func() {
-		err := srv.ListenAndServe()
+		err := srv.Serve(ln)
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}
@@ -214,6 +220,9 @@ func validateStoredRecord(record Record, trustedRoots map[string]struct{}, hasEx
 	if err := record.Verify(); err != nil {
 		return http.StatusBadRequest, err
 	}
+	// The server is an allowlisted cache, not the trust anchor. It filters by
+	// trusted roots and prevents an existing WG key from being rebound to a
+	// different identity tuple.
 	if len(trustedRoots) > 0 {
 		if strings.TrimSpace(record.RootPublicKey) == "" || strings.TrimSpace(record.IdentitySignature) == "" {
 			return http.StatusForbidden, errors.New("root-issued identity is required")
@@ -408,6 +417,8 @@ func FetchLatest(ctx context.Context, baseURLs []string, wgPublicKey string) (*R
 	successfulLookup := false
 	received := 0
 
+	// Query every server in parallel, but stop waiting after a short window and
+	// choose the newest valid record seen so far.
 collect:
 	for received < len(baseURLs) {
 		select {

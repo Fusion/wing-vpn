@@ -111,6 +111,19 @@ func Write(path string, cfg *Config) error {
 	return nil
 }
 
+func PersistRuntimeIdentity(path string, cfg *Config) error {
+	before := *cfg
+	if err := EnsureRuntimeIdentity(cfg); err != nil {
+		return err
+	}
+	if before.PublicKey == cfg.PublicKey &&
+		before.ControlPrivateKey == cfg.ControlPrivateKey &&
+		before.ControlPublicKey == cfg.ControlPublicKey {
+		return nil
+	}
+	return Write(path, cfg)
+}
+
 func WriteState(cfg *Config, osIface string) error {
 	dir, err := StateDir()
 	if err != nil {

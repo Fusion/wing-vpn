@@ -63,6 +63,8 @@ func (r *Record) canonicalJSON() ([]byte, error) {
 	if r == nil {
 		return nil, errors.New("record is nil")
 	}
+	// This is the exact payload authenticated by the control key. Signature is
+	// intentionally excluded so the signed body is stable.
 	payload := struct {
 		Name             string      `json:"name,omitempty"`
 		WGPublicKey      string      `json:"wg_public_key"`
@@ -119,6 +121,8 @@ func (r *Record) Verify() error {
 	if err := config.ValidateControlPublicKey(r.ControlPublicKey); err != nil {
 		return fmt.Errorf("invalid control_public_key: %v", err)
 	}
+	// The root signature binds the WireGuard and control identities together,
+	// while the control signature below authenticates this live record body.
 	if strings.TrimSpace(r.RootPublicKey) != "" || strings.TrimSpace(r.IdentitySignature) != "" {
 		if err := config.ValidateControlPublicKey(r.RootPublicKey); err != nil {
 			return fmt.Errorf("invalid root_public_key: %v", err)
@@ -194,6 +198,8 @@ func BestEndpoint(record *Record) string {
 	if record == nil {
 		return ""
 	}
+	// Prefer globally reachable candidates first, then static hints, then best
+	// effort guesses, and only fall back to raw host addresses last.
 	for _, candidate := range record.Candidates {
 		if candidate.Type == "srflx" {
 			return candidate.Address
@@ -232,6 +238,8 @@ func recordAllowedIPs(addr string) []string {
 	if addr == "" {
 		return nil
 	}
+	// Rendezvous currently publishes only the node's own tunnel address, not a
+	// broader route set.
 	norm, err := config.NormalizeAddress(addr)
 	if err != nil {
 		return nil

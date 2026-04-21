@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 	"wing/rendezvous"
 )
 
-func handleRendezvousStatus(cfg *config.Config, query string) error {
+func HandleRendezvousStatus(cfg *config.Config, query string) error {
 	urls := config.EffectiveRendezvousURLs(cfg)
 	if len(urls) == 0 {
 		return errors.New("no rendezvous urls configured")
@@ -69,9 +69,9 @@ func handleRendezvousListStatus(urls []string) error {
 	defer cancel()
 
 	type serverListing struct {
-		baseURL  string
-		records  []rendezvous.Record
-		err      error
+		baseURL string
+		records []rendezvous.Record
+		err     error
 	}
 
 	listings := make([]serverListing, 0, len(urls))
@@ -122,6 +122,8 @@ func handleRendezvousListStatus(urls []string) error {
 	}
 	slices.Sort(keys)
 
+	// The merged view is newest-by-sequence across servers, not a claim that
+	// every server agreed on the same record contents.
 	fmt.Printf("merged_records: %d\n", len(keys))
 	for _, key := range keys {
 		record := merged[key]
@@ -192,6 +194,6 @@ func printRendezvousRecordWithIndent(record *rendezvous.Record, indent string) {
 	}
 }
 
-func printRendezvousStatusHint() {
+func PrintRendezvousStatusHint() {
 	fmt.Fprintf(os.Stderr, "hint: use -rendezvous-status self, -rendezvous-status all, or -rendezvous-status <peer-name-or-public-key>\n")
 }

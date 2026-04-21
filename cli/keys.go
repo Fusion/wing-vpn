@@ -1,4 +1,4 @@
-package main
+package cli
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"wing/config"
 )
 
-func handleKeygen(genkey, genrootkey, issuepeerkey, genpsk bool, rootPrivateKey string) error {
+func HandleKeygen(genkey, genrootkey, issuepeerkey, genpsk bool, rootPrivateKey string) error {
 	if genkey {
 		priv, pub, err := config.GenerateKeypair()
 		if err != nil {

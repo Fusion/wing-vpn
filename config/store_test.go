@@ -1,36 +1,34 @@
-package main
+package config
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"wing/config"
 )
 
 func TestSelfConfigPathUsesEnv(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("WING_STATE_DIR", dir)
-	path, err := config.SelfPath()
+	path, err := SelfPath()
 	if err != nil {
-		t.Fatalf("selfConfigPath error: %v", err)
+		t.Fatalf("SelfPath error: %v", err)
 	}
 	want := filepath.Join(dir, "self.json")
 	if path != want {
-		t.Fatalf("selfConfigPath = %q, want %q", path, want)
+		t.Fatalf("SelfPath = %q, want %q", path, want)
 	}
 }
 
 func TestInitConfigAtCreatesPeersArray(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "self.json")
-	created, err := config.InitAt(path)
+	created, err := InitAt(path)
 	if err != nil {
-		t.Fatalf("initConfigAt error: %v", err)
+		t.Fatalf("InitAt error: %v", err)
 	}
 	if !created {
-		t.Fatalf("initConfigAt expected created=true")
+		t.Fatalf("InitAt expected created=true")
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -60,15 +58,15 @@ func TestInitConfigAtCreatesPeersArray(t *testing.T) {
 func TestWriteConfigPeersNotNull(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "c.json")
-	priv, pub, err := config.GenerateKeypair()
+	priv, pub, err := GenerateKeypair()
 	if err != nil {
 		t.Fatalf("GenerateKeypair error: %v", err)
 	}
-	cpriv, cpub, err := config.GenerateControlKeypair()
+	cpriv, cpub, err := GenerateControlKeypair()
 	if err != nil {
 		t.Fatalf("GenerateControlKeypair error: %v", err)
 	}
-	cfg := &config.Config{
+	cfg := &Config{
 		Interface:         "wgwing0",
 		PrivateKey:        priv,
 		PublicKey:         pub,
@@ -76,8 +74,8 @@ func TestWriteConfigPeersNotNull(t *testing.T) {
 		ControlPublicKey:  cpub,
 		Peers:             nil,
 	}
-	if err := config.Write(path, cfg); err != nil {
-		t.Fatalf("writeConfig error: %v", err)
+	if err := Write(path, cfg); err != nil {
+		t.Fatalf("Write error: %v", err)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -97,8 +95,8 @@ func TestWriteConfigPeersNotNull(t *testing.T) {
 }
 
 func TestEnsureRuntimeIdentityBackfillsControlKeys(t *testing.T) {
-	cfg := &config.Config{Interface: "wgwing0"}
-	if err := config.EnsureRuntimeIdentity(cfg); err != nil {
+	cfg := &Config{Interface: "wgwing0"}
+	if err := EnsureRuntimeIdentity(cfg); err != nil {
 		t.Fatalf("EnsureRuntimeIdentity error: %v", err)
 	}
 	if cfg.ControlPrivateKey == "" {
@@ -110,31 +108,31 @@ func TestEnsureRuntimeIdentityBackfillsControlKeys(t *testing.T) {
 }
 
 func TestIssuePeerIdentityProducesVerifiableBundle(t *testing.T) {
-	rootPriv, rootPub, err := config.GenerateRootKeypair()
+	rootPriv, rootPub, err := GenerateRootKeypair()
 	if err != nil {
 		t.Fatalf("GenerateRootKeypair error: %v", err)
 	}
-	issued, err := config.IssuePeerIdentity(rootPriv)
+	issued, err := IssuePeerIdentity(rootPriv)
 	if err != nil {
 		t.Fatalf("IssuePeerIdentity error: %v", err)
 	}
 	if issued.RootPublicKey != rootPub {
 		t.Fatalf("root public key mismatch: %q vs %q", issued.RootPublicKey, rootPub)
 	}
-	if err := config.VerifyIdentityBinding(issued.RootPublicKey, issued.PublicKey, issued.ControlPublicKey, issued.IdentitySignature); err != nil {
+	if err := VerifyIdentityBinding(issued.RootPublicKey, issued.PublicKey, issued.ControlPublicKey, issued.IdentitySignature); err != nil {
 		t.Fatalf("VerifyIdentityBinding error: %v", err)
 	}
 }
 
 func TestEffectiveRendezvousURLsDedupesConfiguredList(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := &Config{}
 	cfg.Rendezvous.URLs = []string{
 		"http://rv1.example.com:8787",
 		"http://rv2.example.com:8787",
 		"http://rv1.example.com:8787",
 		"  ",
 	}
-	got := config.EffectiveRendezvousURLs(cfg)
+	got := EffectiveRendezvousURLs(cfg)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 urls, got %v", got)
 	}
