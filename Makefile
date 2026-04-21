@@ -2,7 +2,7 @@ BINARY := wing
 DIST_DIR := dist
 GOFLAGS :=
 
-.PHONY: all clean test
+.PHONY: all clean test linux macos push
 
 all: macos linux
 
@@ -21,3 +21,6 @@ clean:
 
 test:
 	go test ./...
+
+push:
+	for h in mahogany cherry taffy; do echo "$$h:"; scp dist/wing-linux-amd64 $$h:~/wing; done

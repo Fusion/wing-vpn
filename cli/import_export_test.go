@@ -1,9 +1,7 @@
-package main
+package cli
 
 import (
 	"encoding/json"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,18 +14,33 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateKeypair error: %v", err)
 	}
+	_, controlPub, err := config.GenerateControlKeypair()
+	if err != nil {
+		t.Fatalf("GenerateControlKeypair error: %v", err)
+	}
+	rootPriv, rootPub, err := config.GenerateRootKeypair()
+	if err != nil {
+		t.Fatalf("GenerateRootKeypair error: %v", err)
+	}
+	identitySig, err := config.SignIdentityBinding(rootPriv, pub, controlPub)
+	if err != nil {
+		t.Fatalf("SignIdentityBinding error: %v", err)
+	}
 
 	cfg := &config.Config{
-		Interface:   "wgwing0",
-		MyPublicKey: pub,
-		MyEndpoint:  "1.2.3.4:51821",
-		Address:     "10.7.0.1",
-		Peers:       []config.Peer{},
+		Interface:         "wgwing0",
+		PublicKey:         pub,
+		ControlPublicKey:  controlPub,
+		RootPublicKey:     rootPub,
+		IdentitySignature: identitySig,
+		MyEndpoint:        "1.2.3.4:51821",
+		Address:           "10.7.0.1",
+		Peers:             []config.Peer{},
 	}
 
 	out := captureStdout(t, func() {
-		if err := handleExport(cfg); err != nil {
-			t.Fatalf("handleExport error: %v", err)
+		if err := HandleExport(cfg); err != nil {
+			t.Fatalf("HandleExport error: %v", err)
 		}
 	})
 
@@ -48,8 +61,8 @@ func TestExportImportRoundTrip(t *testing.T) {
 	}
 
 	withStdin(t, out, func() {
-		if err := handleImport(path, cfg2); err != nil {
-			t.Fatalf("handleImport error: %v", err)
+		if err := HandleImport(path, cfg2); err != nil {
+			t.Fatalf("HandleImport error: %v", err)
 		}
 	})
 
@@ -64,39 +77,24 @@ func TestExportImportRoundTrip(t *testing.T) {
 	if p.PublicKey != peer.PublicKey {
 		t.Fatalf("public_key mismatch: %q vs %q", p.PublicKey, peer.PublicKey)
 	}
+	if p.ControlPublicKey != peer.ControlPublicKey {
+		t.Fatalf("control_public_key mismatch: %q vs %q", p.ControlPublicKey, peer.ControlPublicKey)
+	}
+	if p.RootPublicKey != peer.RootPublicKey {
+		t.Fatalf("root_public_key mismatch: %q vs %q", p.RootPublicKey, peer.RootPublicKey)
+	}
+	if p.IdentitySignature != peer.IdentitySignature {
+		t.Fatalf("identity_signature mismatch: %q vs %q", p.IdentitySignature, peer.IdentitySignature)
+	}
 	if p.Endpoint != peer.Endpoint {
 		t.Fatalf("endpoint mismatch: %q vs %q", p.Endpoint, peer.Endpoint)
+	}
+	if !p.DynamicEndpoint {
+		t.Fatalf("expected dynamic_endpoint to round-trip true")
 	}
 	if len(p.AllowedIPs) != 1 || p.AllowedIPs[0] != "10.7.0.1/32" {
 		t.Fatalf("allowed_ips mismatch: %v", p.AllowedIPs)
 	}
-}
-
-func captureStdout(t *testing.T, fn func()) string {
-	old := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe error: %v", err)
-	}
-	os.Stdout = w
-	fn()
-	_ = w.Close()
-	os.Stdout = old
-	b, _ := io.ReadAll(r)
-	return string(b)
-}
-
-func withStdin(t *testing.T, input string, fn func()) {
-	old := os.Stdin
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe error: %v", err)
-	}
-	_, _ = w.Write([]byte(input))
-	_ = w.Close()
-	os.Stdin = r
-	fn()
-	os.Stdin = old
 }
 
 func TestImportRejectsDuplicateName(t *testing.T) {
@@ -123,7 +121,7 @@ func TestImportRejectsDuplicateName(t *testing.T) {
 }`
 
 	withStdin(t, peerJSON, func() {
-		err := handleImport(path, cfg)
+		err := HandleImport(path, cfg)
 		if err == nil {
 			t.Fatalf("expected duplicate name error")
 		}

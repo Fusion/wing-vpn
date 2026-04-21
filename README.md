@@ -9,6 +9,7 @@ Dead‑simple WireGuard userspace launcher for Linux + macOS that keeps routes/D
 - Sets a local /32 address.
 - Configures peers and **only** host (/32) routes for peer WG IPs.
 - Does **not** touch default routes or DNS.
+- Optionally runs a local control-plane daemon that publishes/fetches signed endpoint records through a rendezvous service.
 
 ## Requirements
 - `wireguard-go` in `PATH`
@@ -58,6 +59,15 @@ At any time, launch a leg of the peer relationship using:
 sudo wing -detach
 ```
 
+To run the new control plane:
+```sh
+# central rendezvous service
+wing -serve-rendezvous -rendezvous-listen :8787 -rendezvous-trusted-roots YOUR_BASE64_ROOT_PUBLIC_KEY
+
+# each node
+sudo wing -daemon
+```
+
 ## Usage
 ```sh
 sudo wing [-config config.example.json]
@@ -74,6 +84,9 @@ Non-interactive setup:
 wing -setup -address 10.7.0.1 -listen-port 51821 -mtu 1420
 ```
 `-setup` also prompts for `my_endpoint` in `host:port` form, and will use the current value as the default.
+It also prompts for rendezvous URLs as a comma-separated list.
+It then asks whether you want to edit the issued rendezvous identity block. If you say yes, you can paste the `-issuepeerkey` output; if you paste one, it replaces the local `private_key` through `identity_signature` fields in `self.json`.
+If you set a local `name`, that name is also published in rendezvous records so directory listings can show something human-readable.
 
 List peers:
 ```sh
@@ -125,6 +138,33 @@ Show status:
 wing -config config.example.json -status
 ```
 
+Inspect rendezvous records for yourself or a peer:
+```sh
+wing -rendezvous-status self
+wing -rendezvous-status all
+wing -rendezvous-status peer-name
+```
+
+Run the local daemon:
+```sh
+sudo wing -daemon
+```
+
+Run the rendezvous service:
+```sh
+wing -serve-rendezvous -rendezvous-listen :8787 -rendezvous-trusted-roots ROOT_A_PUB,ROOT_B_PUB
+```
+
+Enable request/event logging on the rendezvous node:
+```sh
+wing -serve-rendezvous -debug -rendezvous-listen :8787 -rendezvous-trusted-roots ROOT_A_PUB,ROOT_B_PUB
+```
+
+Or load trusted roots from config:
+```sh
+wing -config rendezvous.json -serve-rendezvous
+```
+
 Return to prompt and leave the interface up:
 ```sh
 sudo wing -config config.example.json -detach
@@ -134,8 +174,27 @@ sudo wing -config config.example.json -detach
 Generate keys without `wg`:
 ```sh
 wing -genkey
+wing -genrootkey
+wing -issuepeerkey -root-private-key YOUR_BASE64_ROOT_PRIVATE_KEY
 wing -genpsk
 ```
+
+Root-issued peer flow:
+```sh
+# central secure location
+wing -genrootkey
+wing -issuepeerkey -root-private-key YOUR_BASE64_ROOT_PRIVATE_KEY
+```
+
+`-issuepeerkey` outputs a JSON bundle containing:
+- `private_key`
+- `public_key`
+- `control_private_key`
+- `control_public_key`
+- `root_public_key`
+- `identity_signature`
+
+That bundle is what you distribute to the peer. The root signature binds the peer's WireGuard public key and control public key to the trusted root.
 
 Linux without full root (userspace):
 ```sh
@@ -145,6 +204,24 @@ wing -config config.example.json
 
 ## Config
 `config.example.json` shows the shape. Only /32 IPv4 `allowed_ips` are accepted in this minimal version.
+
+New control-plane fields:
+- `control_private_key` / `control_public_key`: Ed25519 keypair used to sign endpoint records.
+- `root_public_key` / `identity_signature`: root-issued identity proof binding the peer's WireGuard and control public keys to a trusted root signer.
+- `name`: optional local node name published in rendezvous records and used as the default export name.
+- `daemon.stun_servers`: STUN servers used for reflexive endpoint discovery.
+- `rendezvous.urls`: HTTP base URLs for redundant rendezvous services.
+- `rendezvous.trusted_root_public_keys`: root public keys that a rendezvous server will accept for peer registrations.
+- `peer.control_public_key`: trusted signing key for a peer's dynamic endpoint records.
+- `peer.root_public_key` / `peer.identity_signature`: root-issued proof for the peer identity bundle.
+- `peer.dynamic_endpoint`: allow the daemon to replace the peer endpoint from rendezvous records.
+- `-rendezvous-status`: query each configured rendezvous server directly and show the newest record it sees.
+- `-rendezvous-status all`: list every currently registered peer each configured rendezvous server knows about, plus the merged newest set across servers.
+  Those records now include the peer name, endpoint, and allowed IPs when the publishing node has them configured.
+- `-genrootkey`: generate the trusted root signing keypair.
+- `-issuepeerkey`: generate a peer identity bundle and sign it with the root private key.
+- `-rendezvous-trusted-roots`: comma-separated root public keys trusted by `-serve-rendezvous`.
+- `-debug`: when combined with `-serve-rendezvous`, log registrations, lookup hits/misses, rejections, and record summaries.
 
 ## Debugging
 
@@ -159,7 +236,12 @@ The most common issue is forgetting to import the remote node on both peers.
 - For a mesh, each node lists the other peers with their WG IPs and endpoints.
 - Wing stores state files under `~/.wing` (or `WING_STATE_DIR`) for `-down-all`.
 - `-down-all` only affects interfaces that were created by wing (state files are written only when wing creates a device).
-- `-init` writes `~/.wing/self.json` and includes `my_public_key` for sharing with peers.
+- `-init` writes `~/.wing/self.json` and includes `public_key` for sharing with peers.
+- `-daemon` is intended to run under launchd/systemd or another service manager; it stays in the foreground.
+- STUN discovery is best-effort. On the first daemon start it probes using the configured WG port; later refreshes may publish a guessed port if the live WG socket already owns the port.
+- With multiple rendezvous servers configured, the daemon publishes to all of them and accepts the newest valid signed record it can fetch from the set.
+- Redundant rendezvous fetches are done in parallel with a short timeout window, so one slow server does not hold up fresher records from faster ones.
+- `-serve-rendezvous` now rejects records unless they carry a root-issued identity signed by one of the configured trusted roots, and it rejects attempts to replace an existing peer slot with a different identity binding.
 
 ## Non‑interference guarantees
 - No default route changes.

@@ -14,6 +14,10 @@ func run(cmd string, args ...string) error {
 	return c.Run()
 }
 
+func RunCommand(cmd string, args ...string) error {
+	return run(cmd, args...)
+}
+
 func maskToDotted(mask net.IPMask) string {
 	if len(mask) != 4 {
 		return ""

@@ -20,6 +20,15 @@ func Load(path string) (*Config, error) {
 	if err := json.Unmarshal(b, &c); err != nil {
 		return nil, err
 	}
+	ApplyDefaults(&c)
+	if c.PublicKey == "" && c.PrivateKey != "" {
+		if pub, err := PublicKeyFromPrivate(c.PrivateKey); err == nil {
+			c.PublicKey = pub
+		}
+	}
+	if err := EnsureRuntimeIdentity(&c); err != nil {
+		return nil, err
+	}
 	return &c, nil
 }
 
@@ -55,17 +64,24 @@ func InitAt(path string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	cfg := Config{
-		Interface:     DefaultInterfaceName(),
-		PrivateKey:    priv,
-		MyPublicKey:   pub,
-		MyEndpoint:    "",
-		Address:       "",
-		ListenPort:    51821,
-		MTU:           1420,
-		DisableRoutes: false,
-		Peers:         []Peer{},
+	controlPriv, controlPub, err := GenerateControlKeypair()
+	if err != nil {
+		return false, err
 	}
+	cfg := Config{
+		Interface:         DefaultInterfaceName(),
+		PrivateKey:        priv,
+		PublicKey:         pub,
+		ControlPrivateKey: controlPriv,
+		ControlPublicKey:  controlPub,
+		MyEndpoint:        "",
+		Address:           "",
+		ListenPort:        51821,
+		MTU:               1420,
+		DisableRoutes:     false,
+		Peers:             []Peer{},
+	}
+	ApplyDefaults(&cfg)
 	b, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return false, err
@@ -78,6 +94,9 @@ func InitAt(path string) (bool, error) {
 }
 
 func Write(path string, cfg *Config) error {
+	if err := EnsureRuntimeIdentity(cfg); err != nil {
+		return err
+	}
 	if cfg.Peers == nil {
 		cfg.Peers = []Peer{}
 	}
@@ -90,6 +109,19 @@ func Write(path string, cfg *Config) error {
 	}
 	_ = ensureOwner(path)
 	return nil
+}
+
+func PersistRuntimeIdentity(path string, cfg *Config) error {
+	before := *cfg
+	if err := EnsureRuntimeIdentity(cfg); err != nil {
+		return err
+	}
+	if before.PublicKey == cfg.PublicKey &&
+		before.ControlPrivateKey == cfg.ControlPrivateKey &&
+		before.ControlPublicKey == cfg.ControlPublicKey {
+		return nil
+	}
+	return Write(path, cfg)
 }
 
 func WriteState(cfg *Config, osIface string) error {

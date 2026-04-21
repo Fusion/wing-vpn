@@ -1,15 +1,45 @@
 {
+  "name": "walnut",
   "interface": "utun101",
-  "private_key": "UUqC9EOX7LDTssRn3Jbovr6wHe/9lNP1BSRrEsbNayI=",
+  "private_key": "REPLACE_WITH_WG_PRIVATE_KEY",
+  "public_key": "REPLACE_WITH_WG_PUBLIC_KEY",
+  "control_private_key": "REPLACE_WITH_CONTROL_PRIVATE_KEY",
+  "control_public_key": "REPLACE_WITH_CONTROL_PUBLIC_KEY",
+  "root_public_key": "REPLACE_WITH_ROOT_PUBLIC_KEY",
+  "identity_signature": "REPLACE_WITH_ROOT_SIGNATURE",
   "address": "10.7.0.1/32",
   "listen_port": 51821,
   "mtu": 1420,
   "disable_routes": false,
+  "daemon": {
+    "stun_servers": ["stun.l.google.com:19302"],
+    "publish_interval": 30,
+    "fetch_interval": 15,
+    "retry_initial": 1,
+    "retry_max": 30,
+    "record_ttl": 90,
+    "auto_keepalive": true,
+    "probe_port": 9
+  },
+  "rendezvous": {
+    "trusted_root_public_keys": [
+      "REPLACE_WITH_TRUSTED_ROOT_PUBLIC_KEY"
+    ],
+    "urls": [
+      "http://rendezvous-a.example.com:8787",
+      "http://rendezvous-b.example.com:8787",
+      "http://rendezvous-c.example.com:8787"
+    ]
+  },
   "peers": [
     {
       "name": "mahogany",
       "public_key": "xIXgnRPxbbjF6po/TGZe9oBdoUIBjPrD3eu8pOp/nVo=",
+      "control_public_key": "REPLACE_WITH_PEER_ED25519_PUBLIC_KEY",
+      "root_public_key": "REPLACE_WITH_ROOT_PUBLIC_KEY",
+      "identity_signature": "REPLACE_WITH_PEER_ROOT_SIGNATURE",
       "endpoint": "134.195.91.171:51821",
+      "dynamic_endpoint": true,
       "allowed_ips": ["10.7.0.2/32"],
       "keepalive": 25
     }
