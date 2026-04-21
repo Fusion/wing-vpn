@@ -50,6 +50,11 @@ func PeerStates(iface string) (map[string]PeerState, error) {
 }
 
 func UpdatePeerEndpoint(iface string, peer config.Peer, endpoint string, keepalive int) error {
+	peer.Endpoint = endpoint
+	return UpdatePeer(iface, peer, keepalive)
+}
+
+func UpdatePeer(iface string, peer config.Peer, keepalive int) error {
 	client, err := wgctrl.New()
 	if err != nil {
 		return err
@@ -60,14 +65,23 @@ func UpdatePeerEndpoint(iface string, peer config.Peer, endpoint string, keepali
 	if err != nil {
 		return fmt.Errorf("peer %q: invalid public key", peer.Name)
 	}
-	ep, err := net.ResolveUDPAddr("udp", endpoint)
-	if err != nil {
-		return fmt.Errorf("peer %q: invalid endpoint", peer.Name)
-	}
-
 	peerCfg := wgtypes.PeerConfig{
-		PublicKey: pub,
-		Endpoint:  ep,
+		PublicKey:         pub,
+		ReplaceAllowedIPs: true,
+	}
+	if strings.TrimSpace(peer.Endpoint) != "" {
+		ep, err := net.ResolveUDPAddr("udp", peer.Endpoint)
+		if err != nil {
+			return fmt.Errorf("peer %q: invalid endpoint", peer.Name)
+		}
+		peerCfg.Endpoint = ep
+	}
+	for _, allowed := range peer.AllowedIPs {
+		_, ipnet, err := net.ParseCIDR(allowed)
+		if err != nil {
+			return fmt.Errorf("peer %q: invalid allowed_ip %q", peer.Name, allowed)
+		}
+		peerCfg.AllowedIPs = append(peerCfg.AllowedIPs, *ipnet)
 	}
 	if keepalive > 0 {
 		interval := time.Duration(keepalive) * time.Second

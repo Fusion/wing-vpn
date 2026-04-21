@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -17,8 +19,10 @@ import (
 )
 
 type daemonState struct {
-	cfg        *config.Config
-	peerState  map[string]*peerAttemptState
+	cfgPath     string
+	osIface     string
+	cfg         *config.Config
+	peerState   map[string]*peerAttemptState
 	candidates []rendezvous.Candidate
 }
 
@@ -45,8 +49,10 @@ func runDaemon(cfgPath string, cfg *config.Config, wgGoPath string, reuse bool) 
 	defer stop()
 
 	state := &daemonState{
-		cfg:        runtimeCfg,
-		peerState:  make(map[string]*peerAttemptState, len(runtimeCfg.Peers)),
+		cfgPath:     cfgPath,
+		osIface:     sess.osIface,
+		cfg:         runtimeCfg,
+		peerState:   make(map[string]*peerAttemptState, len(runtimeCfg.Peers)),
 		candidates: initialCandidates,
 	}
 	for _, peer := range runtimeCfg.Peers {
@@ -119,44 +125,91 @@ func (d *daemonState) refreshPeers(ctx context.Context) error {
 	if len(urls) == 0 {
 		return nil
 	}
-	for _, peer := range d.cfg.Peers {
-		if !peer.DynamicEndpoint {
+	records, err := fetchMergedRecords(ctx, urls)
+	if err != nil {
+		return err
+	}
+	peerIndex := make(map[string]int, len(d.cfg.Peers))
+	for i, peer := range d.cfg.Peers {
+		peerIndex[peer.PublicKey] = i
+	}
+	dirty := false
+	keys := make([]string, 0, len(records))
+	for key := range records {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		record := records[key]
+		if record.WGPublicKey == d.cfg.PublicKey {
 			continue
 		}
-		record, err := rendezvous.FetchLatest(ctx, urls, peer.PublicKey)
+
+		idx, known := peerIndex[record.WGPublicKey]
+		var peer config.Peer
+		if known {
+			peer = d.cfg.Peers[idx]
+		}
+		resolvedPeer, added, err := d.resolvePeerFromRecord(peer, known, &record)
 		if err != nil {
-			return err
-		}
-		if record == nil {
+			label := record.Name
+			if strings.TrimSpace(label) == "" {
+				label = record.WGPublicKey
+			}
+			fmt.Fprintf(os.Stderr, "daemon peer %s: %v\n", label, err)
 			continue
 		}
-		if err := record.VerifyForPeer(peer); err != nil {
-			fmt.Fprintf(os.Stderr, "daemon peer %s: %v\n", peer.Name, err)
-			continue
+		if added {
+			d.cfg.Peers = append(d.cfg.Peers, resolvedPeer)
+			idx = len(d.cfg.Peers) - 1
+			peerIndex[resolvedPeer.PublicKey] = idx
+			peer = config.Peer{}
+			dirty = true
 		}
-		endpoint := rendezvous.BestEndpoint(record)
-		if endpoint == "" {
-			continue
-		}
-		attempt := d.peerState[peer.PublicKey]
+		updatedPeer, metadataChanged, runtimeChanged := reconcilePeerFromRecord(resolvedPeer, &record)
+		endpoint := updatedPeer.Endpoint
+		attempt := d.peerState[updatedPeer.PublicKey]
 		if attempt == nil {
 			attempt = &peerAttemptState{backoff: time.Duration(d.cfg.Daemon.RetryInitial) * time.Second}
-			d.peerState[peer.PublicKey] = attempt
+			d.peerState[updatedPeer.PublicKey] = attempt
 		}
-		if record.Sequence <= attempt.lastSequence && endpoint == attempt.lastEndpoint {
+		if !metadataChanged && record.Sequence <= attempt.lastSequence && endpoint == attempt.lastEndpoint {
 			continue
 		}
-		if err := wireguard.UpdatePeerEndpoint(d.cfg.Interface, peer, endpoint, config.EffectiveKeepalive(peer, d.cfg.Daemon.AutoKeepalive)); err != nil {
-			return err
+		if runtimeChanged || endpoint != "" || added {
+			if err := d.applyPeerUpdate(peer, updatedPeer); err != nil {
+				return err
+			}
+		}
+		d.cfg.Peers[idx] = updatedPeer
+		if metadataChanged {
+			dirty = true
 		}
 		attempt.lastSequence = record.Sequence
 		attempt.lastEndpoint = endpoint
 		attempt.nextAttempt = time.Now()
-		if err := wireguard.TriggerPeerHandshake(peer, d.cfg.Daemon.ProbePort); err != nil {
-			fmt.Fprintf(os.Stderr, "daemon handshake trigger for %s: %v\n", peer.Name, err)
+		if endpoint != "" {
+			if err := wireguard.TriggerPeerHandshake(updatedPeer, d.cfg.Daemon.ProbePort); err != nil {
+				fmt.Fprintf(os.Stderr, "daemon handshake trigger for %s: %v\n", updatedPeer.Name, err)
+			}
+		}
+	}
+	if dirty {
+		if err := config.Write(d.cfgPath, d.cfg); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func (d *daemonState) applyPeerUpdate(previous, updated config.Peer) error {
+	if !sameAllowedIPs(previous.AllowedIPs, updated.AllowedIPs) && !d.cfg.DisableRoutes {
+		wireguard.RemovePeerRoutes(d.osIface, []config.Peer{previous})
+		if err := wireguard.AddPeerRoutes(d.osIface, []config.Peer{updated}); err != nil {
+			return err
+		}
+	}
+	return wireguard.UpdatePeer(d.cfg.Interface, updated, config.EffectiveKeepalive(updated, d.cfg.Daemon.AutoKeepalive))
 }
 
 func (d *daemonState) retryPeers() error {
@@ -285,4 +338,146 @@ func persistRuntimeIdentity(cfgPath string, cfg *config.Config) error {
 		return nil
 	}
 	return config.Write(cfgPath, cfg)
+}
+
+func fetchMergedRecords(ctx context.Context, urls []string) (map[string]rendezvous.Record, error) {
+	merged := make(map[string]rendezvous.Record)
+	var errs []string
+	successes := 0
+	for _, baseURL := range urls {
+		records, err := rendezvous.FetchAll(ctx, baseURL)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", baseURL, err))
+			continue
+		}
+		successes++
+		for _, record := range records {
+			current, ok := merged[record.WGPublicKey]
+			if !ok || record.Sequence > current.Sequence {
+				merged[record.WGPublicKey] = record
+			}
+		}
+	}
+	if successes == 0 && len(urls) > 0 {
+		return nil, fmt.Errorf("rendezvous fetch failed: %s", strings.Join(errs, "; "))
+	}
+	return merged, nil
+}
+
+func (d *daemonState) resolvePeerFromRecord(peer config.Peer, known bool, record *rendezvous.Record) (config.Peer, bool, error) {
+	if record == nil {
+		return config.Peer{}, false, errors.New("record is nil")
+	}
+	if err := record.Verify(); err != nil {
+		return config.Peer{}, false, err
+	}
+	trustedRoot := strings.TrimSpace(d.cfg.RootPublicKey)
+	if known {
+		if strings.TrimSpace(peer.RootPublicKey) != "" {
+			trustedRoot = strings.TrimSpace(peer.RootPublicKey)
+		}
+		if peer.PublicKey != record.WGPublicKey {
+			return config.Peer{}, false, fmt.Errorf("record wg_public_key mismatch: %s", record.WGPublicKey)
+		}
+		if peer.ControlPublicKey != "" && peer.ControlPublicKey == record.ControlPublicKey && (peer.RootPublicKey == "" || peer.RootPublicKey == record.RootPublicKey) {
+			return reconcilePeerIdentity(peer, record), false, nil
+		}
+		if trustedRoot == "" {
+			return config.Peer{}, false, errors.New("peer control_public_key mismatch and no trusted root is available")
+		}
+		if record.RootPublicKey != trustedRoot {
+			return config.Peer{}, false, errors.New("record root_public_key mismatch")
+		}
+		return reconcilePeerIdentity(peer, record), false, nil
+	}
+
+	if trustedRoot == "" {
+		return config.Peer{}, false, errors.New("cannot adopt unknown peer without local root_public_key")
+	}
+	if record.RootPublicKey != trustedRoot {
+		return config.Peer{}, false, errors.New("unknown peer root_public_key is not trusted locally")
+	}
+	return peerFromRecord(record), true, nil
+}
+
+func reconcilePeerIdentity(peer config.Peer, record *rendezvous.Record) config.Peer {
+	if record == nil {
+		return peer
+	}
+	peer.ControlPublicKey = record.ControlPublicKey
+	peer.RootPublicKey = record.RootPublicKey
+	peer.IdentitySignature = record.IdentitySignature
+	if strings.TrimSpace(record.Name) != "" {
+		peer.Name = strings.TrimSpace(record.Name)
+	}
+	if peer.Keepalive <= 0 {
+		peer.Keepalive = 25
+	}
+	peer.DynamicEndpoint = true
+	return peer
+}
+
+func peerFromRecord(record *rendezvous.Record) config.Peer {
+	peer := config.Peer{
+		Name:              strings.TrimSpace(record.Name),
+		PublicKey:         record.WGPublicKey,
+		ControlPublicKey:  record.ControlPublicKey,
+		RootPublicKey:     record.RootPublicKey,
+		IdentitySignature: record.IdentitySignature,
+		Endpoint:          strings.TrimSpace(record.Endpoint),
+		DynamicEndpoint:   true,
+		AllowedIPs:        append([]string(nil), record.AllowedIPs...),
+		Keepalive:         25,
+	}
+	if peer.Name == "" {
+		peer.Name = record.WGPublicKey
+	}
+	if peer.Endpoint == "" {
+		peer.Endpoint = rendezvous.BestEndpoint(record)
+	}
+	return peer
+}
+
+func reconcilePeerFromRecord(peer config.Peer, record *rendezvous.Record) (config.Peer, bool, bool) {
+	updated := peer
+	metadataChanged := false
+	runtimeChanged := false
+
+	if record == nil {
+		return updated, false, false
+	}
+	if name := strings.TrimSpace(record.Name); name != "" && name != updated.Name {
+		updated.Name = name
+		metadataChanged = true
+	}
+
+	desiredEndpoint := strings.TrimSpace(record.Endpoint)
+	if desiredEndpoint == "" {
+		desiredEndpoint = rendezvous.BestEndpoint(record)
+	}
+	if desiredEndpoint != "" && desiredEndpoint != updated.Endpoint {
+		updated.Endpoint = desiredEndpoint
+		metadataChanged = true
+		runtimeChanged = true
+	}
+
+	if len(record.AllowedIPs) > 0 && !sameAllowedIPs(updated.AllowedIPs, record.AllowedIPs) {
+		updated.AllowedIPs = append([]string(nil), record.AllowedIPs...)
+		metadataChanged = true
+		runtimeChanged = true
+	}
+
+	return updated, metadataChanged, runtimeChanged
+}
+
+func sameAllowedIPs(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
