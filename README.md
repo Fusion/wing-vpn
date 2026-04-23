@@ -65,6 +65,12 @@ sudo wing -detach
 
 Here, we setup one or more nodes as rendezvous registration and location nodes, and use stun for traversal.
 
+<p align="center">
+  <img src="assets/topology.png" alt="Topology">
+  <br>
+  <em>wing -rendezvous-status all --graph</em>
+</p>
+
 The first thing we do is generate a root key pair. This will be used to sign control packages, preventing rogue peers from joining your network. Do not lose your private key!
 ```sh
 wing -genrootkey
@@ -92,9 +98,9 @@ On each node, start wing in daemon mode and it will "call home:"
 sudo wing -daemon
 ```
 
-You can query the list of registered peers aat any time:
+You can query the list of registered peers at any time:
 ```sh
-wing -rendezvous-status all
+wing -rendezvous-status all [--json|--graph]
 ```
 
 ## Usage
