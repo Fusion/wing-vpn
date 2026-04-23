@@ -26,9 +26,11 @@ If the kernel driver isn’t available, install `wireguard-go` and ensure it’s
 
 Wing will use the kernel driver when it exists and fall back to userspace otherwise.
 
-## Quick Walkthrough
+## Quick Walkthroughs
 
-In this example, we are going to connect a couple peers.
+### Simple, a few peers tunneling
+In this example, we are going to connect a couple peers. We could be connecting three or more just as easily.
+This is a good setup for servers, or anyone who is not behind a NATted gateway, and not changing ip addresses too often.
 
 Host A:
 ```sh
@@ -59,13 +61,40 @@ At any time, launch a leg of the peer relationship using:
 sudo wing -detach
 ```
 
-To run the new control plane:
-```sh
-# central rendezvous service
-wing -serve-rendezvous -rendezvous-listen :8787 -rendezvous-trusted-roots YOUR_BASE64_ROOT_PUBLIC_KEY
+### With a control plane
 
-# each node
+Here, we setup one or more nodes as rendezvous registration and location nodes, and use stun for traversal.
+
+The first thing we do is generate a root key pair. This will be used to sign control packages, preventing rogue peers from joining your network. Do not lose your private key!
+```sh
+wing -genrootkey
+```
+
+Now, for every peer that we "invite" to our network, we generate a new key control key pair:
+```sh
+wing -issuepeerkey -root-private-key <root private key>
+```
+-> this displays the peer's configuration: copy the output
+
+then, on the corresponding peer, run
+```sh
+wing -setup
+```
+provide the required information; paste the above invite data when prompted.
+
+We are now ready to build our network. Start one or more rendezvous nodes:
+```sh
+wing -serve-rendezvous -rendezvous-listen :8787 -rendezvous-trusted-roots <root public key> [-debug]
+```
+
+On each node, start wing in daemon mode and it will "call home:"
+```sh
 sudo wing -daemon
+```
+
+You can query the list of registered peers aat any time:
+```sh
+wing -rendezvous-status all
 ```
 
 ## Usage

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
@@ -70,6 +71,45 @@ func TestResolveRendezvousTargetAllHandledSeparately(t *testing.T) {
 	}
 	if _, _, err := resolveRendezvousTarget(cfg, "all"); err == nil {
 		t.Fatalf("expected HandleRendezvousStatus to treat all specially before resolve")
+	}
+}
+
+func TestWriteJSONProducesIndentedObject(t *testing.T) {
+	out := captureOutput(t, func() {
+		if err := writeJSON(map[string]string{"mode": "json"}); err != nil {
+			t.Fatalf("writeJSON error: %v", err)
+		}
+	})
+	if !strings.Contains(out, "\"mode\": \"json\"") {
+		t.Fatalf("expected json output, got %q", out)
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("json unmarshal error: %v", err)
+	}
+	if decoded["mode"] != "json" {
+		t.Fatalf("decoded mode = %q, want %q", decoded["mode"], "json")
+	}
+}
+
+func TestRenderGraphHTMLIncludesNodesAndEdges(t *testing.T) {
+	htmlDoc, err := renderGraphHTML(graphPage{
+		Title: "graph test",
+		Nodes: []graphNode{
+			{ID: "server:rv1", Label: "rv1", Kind: "server", Detail: "records: 1"},
+			{ID: "peer:oak", Label: "oak", Kind: "peer", Detail: "endpoint: 1.2.3.4:51821"},
+		},
+		Edges: []graphEdge{
+			{From: "server:rv1", To: "peer:oak", Highlight: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("renderGraphHTML error: %v", err)
+	}
+	for _, needle := range []string{"graph test", "\"server:rv1\"", "\"peer:oak\"", "\"highlight\":true"} {
+		if !strings.Contains(htmlDoc, needle) {
+			t.Fatalf("expected %q in html output", needle)
+		}
 	}
 }
 
